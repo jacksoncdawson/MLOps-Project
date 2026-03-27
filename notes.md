@@ -10,17 +10,19 @@ We help fashion re-sellers sell and stock inventory faster and in greater quanti
 
 ## Features:
 
-1. Automatic Listing Schedule
+1. Listing Scheduler
 
 The user specifies the products they currently have in inventory, and our app creates an intelligent listing schedule for each piece, informed by historical, current, and future predicted trends. This enables the seller to optimize the amount they make on their inventory without any time spent researching. For each product, a user-friendly time-series plot is shown, detailing how much they stand to make if they list and sell at the recommended intervals.
-
-> Potential Feature-Add: We could look at similar pieces that sold for more/less, and suggest ways to frame the item on the listing that is most likely to attract buyers.
 
 2. Trend Radar
 
 User is presented with a few time interval options (e.g., 'Today', 'Next Week', '1 Month', '3 Months') which each provide information about trend predictions. Predictions include colors, styles, materials, articles, and vibes.
 
-> Potential Feature-Add: We can connect to retail sites, or listings on Depop/other directly from these prediction pages, to help the user quickly stock anticipatory inventory.
+3. Sourcing Recommendations
+
+Given our projections, we suggest to the user a top-K number of recommendations for types of pieces to purchase right now. This will be optimized based on whats currently trending, whats projected to be trending, and specifically what is currently less popular, that is going to be popular down the road. This informs the user with a strategized "buy low, sell high" approach.
+
+This should include projected resale price/profit, and specify the buy-in ceiling for given recommendations to maintain larger profits
 
 # Data Sources
 
