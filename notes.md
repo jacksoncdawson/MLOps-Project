@@ -1,4 +1,4 @@
-# Project Pitch
+# Project Pitch: trndly
 
 **Context:**
 
