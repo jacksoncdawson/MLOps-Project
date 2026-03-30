@@ -65,20 +65,24 @@ flowchart TB
   GitHubActions -->|deploy| FastAPI
 ```
 
+
+
 ---
 
 ## 1. Frontend — React on Firebase Hosting
 
-| Concern | Choice |
-|---|---|
-| Framework | React (Vite + TypeScript) |
-| Hosting | Firebase Hosting (global CDN, free tier: 10 GB storage, 360 MB/day transfer) |
-| Auth | Firebase Auth (Google sign-in, email/password) |
-| Charting | Recharts or Plotly.js for time-series plots (Listing Scheduler feature) |
-| Data fetching | TanStack Query (caching, background refetches) |
-| Routing | React Router |
 
-The React app is a single-page application that communicates with the FastAPI backend over REST. Firebase Auth issues JWTs on the client side; every API call includes the token in an `Authorization` header for server-side validation.
+| Concern       | Choice                                                                       |
+| ------------- | ---------------------------------------------------------------------------- |
+| Framework     | React (Vite + TypeScript)                                                    |
+| Hosting       | Firebase Hosting (global CDN, free tier: 10 GB storage, 360 MB/day transfer) |
+| Auth          | Firebase Auth (Google sign-in, email/password)                               |
+| Charting      | Recharts or Plotly.js for time-series plots (Listing Scheduler feature)      |
+| Data fetching | SWR (stale-while-revalidate caching, lightweight)                            |
+| Routing       | React Router                                                                 |
+
+
+The React app is a single-page application (SPA) that communicates with the FastAPI backend over REST. Firebase Auth issues JWTs on the client side; every API call includes the token in an `Authorization` header for server-side validation.
 
 ### Feature → UI Mapping
 
@@ -90,12 +94,14 @@ The React app is a single-page application that communicates with the FastAPI ba
 
 ## 2. Backend API — FastAPI on Cloud Run
 
-| Concern | Choice |
-|---|---|
-| Framework | FastAPI (Python 3.11+) |
-| Runtime | Cloud Run (scale to zero, 2M requests/month free) |
-| Containerization | Docker (single image for the API service) |
-| Auth | Middleware validates Firebase Auth JWTs via `google-auth` |
+
+| Concern          | Choice                                                    |
+| ---------------- | --------------------------------------------------------- |
+| Framework        | FastAPI (Python 3.11+)                                    |
+| Runtime          | Cloud Run (scale to zero, 2M requests/month free)         |
+| Containerization | Docker (single image for the API service)                 |
+| Auth             | Middleware validates Firebase Auth JWTs via `google-auth` |
+
 
 ### Responsibilities
 
@@ -137,16 +143,20 @@ flowchart LR
   GoogleTrendsJob -->|done| PubSub
 ```
 
+
+
 ### Sources and Cadence
 
-| Source | Method | Cadence |
-|---|---|---|
-| Retail sites (3–5) | Web scraping (item descriptions + metadata) | Daily |
-| Pinterest | Trends API + Gemini for interpretation | Daily |
-| Reddit | API (fashion subreddits: r/streetwear, r/malefashionadvice, etc.) | Daily |
-| Google Trends | `pytrends` library | Daily |
-| H&M Kaggle dataset | One-time bulk load into GCS | Bootstrap |
-| DeepFashion dataset | One-time bulk load into GCS | Bootstrap |
+
+| Source              | Method                                                            | Cadence   |
+| ------------------- | ----------------------------------------------------------------- | --------- |
+| Retail sites (3–5)  | Web scraping (item descriptions + metadata)                       | Daily     |
+| Pinterest           | Trends API + Gemini for interpretation                            | Daily     |
+| Reddit              | API (fashion subreddits: r/streetwear, r/malefashionadvice, etc.) | Daily     |
+| Google Trends       | `pytrends` library                                                | Daily     |
+| H&M Kaggle dataset  | One-time bulk load into GCS                                       | Bootstrap |
+| DeepFashion dataset | One-time bulk load into GCS                                       | Bootstrap |
+
 
 Each collector is a standalone Cloud Run Job with its own Docker image. Cloud Scheduler fires each job on a cron expression. On completion, each job publishes a message to a Pub/Sub topic (`raw-data-ready`) that triggers downstream ETL.
 
@@ -158,22 +168,26 @@ Raw data is written to GCS under a consistent partition scheme: `gs://trndly-raw
 
 ### Cloud Storage (GCS)
 
-| Bucket | Contents |
-|---|---|
-| `trndly-raw` | Raw scraped data (JSON/CSV), partitioned by source and date |
-| `trndly-historical` | One-time loaded historical datasets (H&M, DeepFashion) |
-| `trndly-models` | Trained model artifacts, versioned by timestamp (e.g., `models/trend-forecast/2026-03-29T12:00:00/`) |
+
+| Bucket              | Contents                                                                                             |
+| ------------------- | ---------------------------------------------------------------------------------------------------- |
+| `trndly-raw`        | Raw scraped data (JSON/CSV), partitioned by source and date                                          |
+| `trndly-historical` | One-time loaded historical datasets (H&M, DeepFashion)                                               |
+| `trndly-models`     | Trained model artifacts, versioned by timestamp (e.g., `models/trend-forecast/2026-03-29T12:00:00/`) |
+
 
 ### BigQuery
 
 Single dataset `trndly` with tables for:
 
-| Table | Description |
-|---|---|
-| `trend_signals` | Unified, cleaned trend observations from all sources (date, category, signal_type, signal_value, strength) |
-| `item_metadata` | Normalized item catalog (article type, color, material, style tags) |
-| `price_history` | Historical and scraped price points by item category |
-| `aggregated_features` | Pre-computed feature tables consumed directly by ML training and the API |
+
+| Table                 | Description                                                                                                |
+| --------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `trend_signals`       | Unified, cleaned trend observations from all sources (date, category, signal_type, signal_value, strength) |
+| `item_metadata`       | Normalized item catalog (article type, color, material, style tags)                                        |
+| `price_history`       | Historical and scraped price points by item category                                                       |
+| `aggregated_features` | Pre-computed feature tables consumed directly by ML training and the API                                   |
+
 
 BigQuery is the single source of truth for all ML training and analytical API queries. Its serverless model means no provisioned capacity — queries are billed per TB scanned (1 TB/month free).
 
@@ -181,11 +195,13 @@ BigQuery is the single source of truth for all ML training and analytical API qu
 
 Collections:
 
-| Collection | Documents |
-|---|---|
-| `users` | User profile, preferences, account metadata |
-| `inventory` | User's current inventory items (linked to user) |
-| `listing_schedules` | Generated listing schedules per inventory item |
+
+| Collection          | Documents                                       |
+| ------------------- | ----------------------------------------------- |
+| `users`             | User profile, preferences, account metadata     |
+| `inventory`         | User's current inventory items (linked to user) |
+| `listing_schedules` | Generated listing schedules per inventory item  |
+
 
 Firestore is chosen over Cloud SQL for its serverless scaling, generous free tier (50K reads/day, 20K writes/day), and natural fit with Firebase Auth on the frontend.
 
@@ -199,11 +215,13 @@ Triggered by Pub/Sub messages from the data collection pipeline. Cloud Run Jobs 
 
 ### Models
 
-| Model | Purpose | Approach |
-|---|---|---|
-| Trend Forecaster | Predict trend strength over time horizons (Trend Radar, Listing Scheduler) | Time-series forecasting — Prophet or a lightweight temporal model |
-| Item Classifier | Categorize items by style, color, material, vibe from text/image | NLP embeddings (sentence-transformers) + optional image features |
-| Sourcing Ranker | Score item categories for buy-low-sell-high potential | Ranking model combining current popularity, predicted trajectory, and current market price |
+
+| Model            | Purpose                                                                    | Approach                                                                                   |
+| ---------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Trend Forecaster | Predict trend strength over time horizons (Trend Radar, Listing Scheduler) | Time-series forecasting — Prophet or a lightweight temporal model                          |
+| Item Classifier  | Categorize items by style, color, material, vibe from text/image           | NLP embeddings (sentence-transformers) + optional image features                           |
+| Sourcing Ranker  | Score item categories for buy-low-sell-high potential                      | Ranking model combining current popularity, predicted trajectory, and current market price |
+
 
 ### Training
 
@@ -219,14 +237,16 @@ The FastAPI backend loads the latest model artifacts from GCS at startup. No ded
 
 ## 6. ML Ops Practices
 
-| Practice | Implementation |
-|---|---|
-| **Model Versioning** | Every training run writes a timestamped artifact to GCS and registers it in Vertex AI Model Registry with metrics and metadata |
-| **Automated Retraining** | Cloud Scheduler triggers training Cloud Run Jobs weekly; manual trigger available via `gcloud` or GitHub Actions dispatch |
-| **Data Validation** | ETL jobs run schema + distribution checks on incoming data before writing to BigQuery; validation failures fire Cloud Monitoring alerts |
-| **Model Monitoring** | Scheduled BigQuery query compares recent predictions against observed actuals; significant drift triggers an alert and an optional early retraining run |
-| **Experiment Tracking** | Vertex AI Experiments logs hyperparameters, metrics, and dataset versions for every training run |
-| **Secrets Management** | All API keys and credentials stored in Secret Manager; injected into Cloud Run services/jobs as environment variables at deploy time |
+
+| Practice                 | Implementation                                                                                                                                          |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Model Versioning**     | Every training run writes a timestamped artifact to GCS and registers it in Vertex AI Model Registry with metrics and metadata                          |
+| **Automated Retraining** | Cloud Scheduler triggers training Cloud Run Jobs weekly; manual trigger available via `gcloud` or GitHub Actions dispatch                               |
+| **Data Validation**      | ETL jobs run schema + distribution checks on incoming data before writing to BigQuery; validation failures fire Cloud Monitoring alerts                 |
+| **Model Monitoring**     | Scheduled BigQuery query compares recent predictions against observed actuals; significant drift triggers an alert and an optional early retraining run |
+| **Experiment Tracking**  | Vertex AI Experiments logs hyperparameters, metrics, and dataset versions for every training run                                                        |
+| **Secrets Management**   | All API keys and credentials stored in Secret Manager; injected into Cloud Run services/jobs as environment variables at deploy time                    |
+
 
 ---
 
@@ -234,11 +254,13 @@ The FastAPI backend loads the latest model artifacts from GCS at startup. No ded
 
 ### GitHub Actions Workflows
 
-| Trigger | Pipeline |
-|---|---|
-| Pull request | Lint (`ruff`), type-check (`mypy`), unit tests (`pytest`), build Docker images (no push) |
+
+| Trigger         | Pipeline                                                                                                       |
+| --------------- | -------------------------------------------------------------------------------------------------------------- |
+| Pull request    | Lint (`ruff`), type-check (`mypy`), unit tests (`pytest`), build Docker images (no push)                       |
 | Merge to `main` | Build + push images to **Artifact Registry**, deploy to Cloud Run (staging environment), run integration tests |
-| Manual dispatch | Promote staging → production (swap Cloud Run traffic) |
+| Manual dispatch | Promote staging → production (swap Cloud Run traffic)                                                          |
+
 
 ### Infrastructure as Code
 
@@ -324,19 +346,21 @@ trndly/
 
 ### Development Phase (Free Tier Coverage)
 
-| Service | Free Tier Allowance | Expected Dev Usage |
-|---|---|---|
-| Cloud Run | 2M req/mo, 180K vCPU-sec, 360K GiB-sec | Well within limits |
-| BigQuery | 1 TB queries/mo, 10 GB storage | Well within limits |
-| Firestore | 50K reads/day, 20K writes/day, 1 GiB storage | Well within limits |
-| Cloud Storage | 5 GB | Sufficient for raw data + models during dev |
-| Firebase Hosting | 10 GB storage, 360 MB/day transfer | Well within limits |
-| Firebase Auth | 10K monthly active users | Well within limits |
-| Cloud Scheduler | 3 free jobs ($0.10/mo per additional job) | ~6 jobs needed, ~$0.30/mo overage |
-| Pub/Sub | 10 GB/mo | Well within limits |
-| Secret Manager | 6 active secret versions | Sufficient |
-| Vertex AI Model Registry | Free (GCS storage cost only) | Negligible |
-| Artifact Registry | 0.5 GB free | Sufficient for a few images |
+
+| Service                  | Free Tier Allowance                          | Expected Dev Usage                          |
+| ------------------------ | -------------------------------------------- | ------------------------------------------- |
+| Cloud Run                | 2M req/mo, 180K vCPU-sec, 360K GiB-sec       | Well within limits                          |
+| BigQuery                 | 1 TB queries/mo, 10 GB storage               | Well within limits                          |
+| Firestore                | 50K reads/day, 20K writes/day, 1 GiB storage | Well within limits                          |
+| Cloud Storage            | 5 GB                                         | Sufficient for raw data + models during dev |
+| Firebase Hosting         | 10 GB storage, 360 MB/day transfer           | Well within limits                          |
+| Firebase Auth            | 10K monthly active users                     | Well within limits                          |
+| Cloud Scheduler          | 3 free jobs ($0.10/mo per additional job)    | ~6 jobs needed, ~$0.30/mo overage           |
+| Pub/Sub                  | 10 GB/mo                                     | Well within limits                          |
+| Secret Manager           | 6 active secret versions                     | Sufficient                                  |
+| Vertex AI Model Registry | Free (GCS storage cost only)                 | Negligible                                  |
+| Artifact Registry        | 0.5 GB free                                  | Sufficient for a few images                 |
+
 
 **Estimated monthly cost during development: $0 – $5**
 
