@@ -8,6 +8,19 @@ trndly is a fashion trend forecasting platform that helps secondhand apparel res
 
 > TODO: mermaid diagram
 
+## Current Milestone Implementation (Apr 2026)
+
+This document describes the target architecture. The current implemented scope in this repo is a smaller milestone slice focused on online model serving.
+
+- Implemented now:
+  - `backend/services/scheduleServer.py` exposes `/`, `/health`, `/predict`, and `/reload-model`.
+  - API loads exactly one online model from MLflow Model Registry alias URI (`models:/listing_timeline@champion`).
+  - Containerization exists via `trndly/Dockerfile`.
+  - Baseline training + registration script exists at `pipelines/training/train_listing_timeline.py`.
+- Planned later:
+  - Full `/api/v1/...` feature routes and broader product endpoints.
+  - Additional offline trend pipeline and full infrastructure automation.
+
 ---
 
 ## 1. Frontend — React on Firebase Hosting
@@ -147,12 +160,12 @@ Triggered by Pub/Sub messages from the data collection pipeline. Cloud Run Jobs 
 ### Training
 
 - Cloud Run Jobs read feature tables from BigQuery, train models, and write serialized artifacts (pickle, ONNX, or joblib) to the `trndly-models` GCS bucket.
-- Each training run is tagged with a version timestamp and registered in **Vertex AI Model Registry** with associated metrics (MAE, RMSE, precision, etc.).
+- Each training run is tagged with a version timestamp and registered in **MLflow Model Registry** with associated metrics (MAE, RMSE, precision, etc.).
 - Cloud Scheduler triggers retraining on a **weekly** cadence. Manual triggers are also supported for ad-hoc runs.
 
 ### Serving
 
-The FastAPI backend loads the latest model artifacts from GCS at startup. No dedicated model-serving infrastructure (e.g., Vertex AI Endpoints) is needed at this scale — inference runs in-process on the Cloud Run container's CPU. When a new model version is promoted, a fresh Cloud Run revision is deployed to pick up the updated artifacts.
+The FastAPI backend loads the active model from MLflow Model Registry at startup (for example, `models:/listing_timeline@champion`). No dedicated model-serving infrastructure is needed at this scale — inference runs in-process on the Cloud Run container's CPU. When a new model version is promoted to the serving alias, a fresh Cloud Run revision can be deployed to pick up the update.
 
 ---
 
@@ -161,11 +174,11 @@ The FastAPI backend loads the latest model artifacts from GCS at startup. No ded
 
 | Practice                 | Implementation                                                                                                                                          |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Model Versioning**     | Every training run writes a timestamped artifact to GCS and registers it in Vertex AI Model Registry with metrics and metadata                          |
+| **Model Versioning**     | Every training run writes a timestamped artifact and registers it in MLflow Model Registry with metrics and metadata                                     |
 | **Automated Retraining** | Cloud Scheduler triggers training Cloud Run Jobs weekly; manual trigger available via `gcloud` or GitHub Actions dispatch                               |
 | **Data Validation**      | ETL jobs run schema + distribution checks on incoming data before writing to BigQuery; validation failures fire Cloud Monitoring alerts                 |
 | **Model Monitoring**     | Scheduled BigQuery query compares recent predictions against observed actuals; significant drift triggers an alert and an optional early retraining run |
-| **Experiment Tracking**  | Vertex AI Experiments logs hyperparameters, metrics, and dataset versions for every training run                                                        |
+| **Experiment Tracking**  | MLflow Tracking logs hyperparameters, metrics, and dataset versions for every training run                                                              |
 | **Secrets Management**   | All API keys and credentials stored in Secret Manager; injected into Cloud Run services/jobs as environment variables at deploy time                    |
 
 

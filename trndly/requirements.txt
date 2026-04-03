@@ -1,6 +1,9 @@
 fastapi
+fastapi[standard]
 mlflow
 numpy
 pandas
 python-dotenv
+scikit-learn
+gcsfs
 uvicorn

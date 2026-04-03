@@ -1,44 +1,59 @@
+from __future__ import annotations
+
 import logging
-import math
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
 import mlflow
-import pandas as pd
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, status
-from pydantic import BaseModel
-
-app = FastAPI(title="MLflow-backed Prediction Service")
-logger = logging.getLogger(__name__)
+from mlflow.tracking import MlflowClient
+from pydantic import BaseModel, Field, field_validator
 
 SERVICE_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SERVICE_DIR.parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
+
+from pipelines.training.feature_contract import (
+    TIMEFRAMES,
+    TrendLookup,
+    build_feature_frame,
+    compute_alignment_scores,
+    load_trend_lookup,
+    normalize_token,
+)
+
+app = FastAPI(title="MLflow-backed Timeframe Recommendation Service")
+logger = logging.getLogger(__name__)
+
 ENV_PATH = SERVICE_DIR / ".env"
 load_dotenv(dotenv_path=ENV_PATH)
 
-MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://34.169.170.34:5000")
-MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "mlops-team-project")
-MLFLOW_MODEL_ARTIFACT_PATH = os.getenv(
-    "MLFLOW_MODEL_ARTIFACT_PATH",
-    "~/mlflow-data/artifacts",
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI")
+MLFLOW_MODEL_URI = os.getenv("MLFLOW_MODEL_URI")
+DEFAULT_TREND_SIGNALS_PATH = (
+    PROJECT_ROOT / "pipelines" / "training" / "synthetic_data" / "trend_signals.csv"
 )
-MLFLOW_PRIMARY_METRIC = os.getenv("MLFLOW_PRIMARY_METRIC", "rmse")
-MLFLOW_METRIC_DIRECTION = os.getenv("MLFLOW_METRIC_DIRECTION", "min").lower()
-if MLFLOW_METRIC_DIRECTION not in {"min", "max"}:
-    logger.warning(
-        "Invalid MLFLOW_METRIC_DIRECTION '%s'; defaulting to 'min'.",
-        MLFLOW_METRIC_DIRECTION,
-    )
-    MLFLOW_METRIC_DIRECTION = "min"
+_configured_trend_signals_path = Path(
+    os.getenv("TREND_SIGNALS_PATH", str(DEFAULT_TREND_SIGNALS_PATH))
+).expanduser()
+TREND_SIGNALS_PATH = (
+    _configured_trend_signals_path
+    if _configured_trend_signals_path.is_absolute()
+    else (SERVICE_DIR / _configured_trend_signals_path).resolve()
+)
 
 
 @dataclass
 class ModelState:
     model: Optional[Any] = None
+    model_uri: Optional[str] = None
+    model_version: Optional[str] = None
     run_id: Optional[str] = None
-    metric_value: Optional[float] = None
     error: Optional[str] = None
 
     @property
@@ -46,7 +61,19 @@ class ModelState:
         return self.model is not None
 
 
+@dataclass
+class TrendState:
+    lookup: Optional[TrendLookup] = None
+    source_path: Optional[str] = None
+    error: Optional[str] = None
+
+    @property
+    def loaded(self) -> bool:
+        return self.lookup is not None
+
+
 MODEL_STATE = ModelState()
+TREND_STATE = TrendState(source_path=str(TREND_SIGNALS_PATH))
 
 
 class RootResponse(BaseModel):
@@ -56,138 +83,211 @@ class RootResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     model_loaded: bool
+    trend_data_loaded: bool
     tracking_uri: str
-    experiment_name: str
-    metric_name: str
+    configured_model_uri: str
+    configured_trend_data_path: str
+    active_model_uri: Optional[str]
+    model_version: Optional[str]
     run_id: Optional[str]
-    metric_value: Optional[float]
     error: Optional[str]
+    trend_error: Optional[str]
 
 
 class PredictRequest(BaseModel):
-    features: list[float]
+    item_name: str = Field(min_length=1, max_length=120)
+    color: str = Field(min_length=1, max_length=40)
+    category: str = Field(min_length=1, max_length=40)
+    material: str = Field(min_length=1, max_length=40)
+
+    @field_validator("item_name", "color", "category", "material")
+    @classmethod
+    def strip_non_empty(cls, value: str) -> str:
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("Field must not be empty.")
+        return trimmed
 
 
 class PredictResponse(BaseModel):
-    prediction: float
+    item_name: str
+    best_timeframe: str
+    timeframe_scores: dict[str, float]
     model_loaded: bool
+    model_uri: Optional[str]
     run_id: Optional[str]
 
 
 class ReloadModelResponse(BaseModel):
     loaded: bool
+    trend_data_loaded: bool
+    configured_model_uri: str
+    configured_trend_data_path: str
+    active_model_uri: Optional[str]
+    model_version: Optional[str]
     run_id: Optional[str]
-    metric_name: str
-    metric_value: Optional[float]
     error: Optional[str]
+    trend_error: Optional[str]
 
 
-def _order_by_clause() -> str:
-    direction = "DESC" if MLFLOW_METRIC_DIRECTION == "max" else "ASC"
-    return f"metrics.{MLFLOW_PRIMARY_METRIC} {direction}"
+def _parse_registry_alias_uri(model_uri: str) -> tuple[Optional[str], Optional[str]]:
+    if not model_uri.startswith("models:/"):
+        return None, None
+
+    locator = model_uri.removeprefix("models:/")
+    if "@" not in locator:
+        return None, None
+
+    model_name, alias = locator.split("@", maxsplit=1)
+    return model_name, alias
 
 
-def _load_best_model_from_mlflow() -> ModelState:
+def _resolve_registry_metadata(model_uri: str) -> tuple[Optional[str], Optional[str]]:
+    model_name, alias = _parse_registry_alias_uri(model_uri)
+    if not model_name or not alias:
+        return None, None
+
+    try:
+        client = MlflowClient(tracking_uri=MLFLOW_TRACKING_URI)
+        model_version = client.get_model_version_by_alias(name=model_name, alias=alias)
+        return model_version.version, model_version.run_id
+    except Exception: 
+        # Metadata lookup should not block serving if model loading succeeds.
+        logger.exception(
+            "Loaded model, but failed resolving registry alias metadata for '%s'.",
+            model_uri,
+        )
+        return None, None
+
+
+def _load_model_from_mlflow(model_uri: str) -> ModelState:
     try:
         mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-        runs = mlflow.search_runs(
-            experiment_names=[MLFLOW_EXPERIMENT_NAME],
-            filter_string="attributes.status = 'FINISHED'",
-            order_by=[_order_by_clause()],
-            max_results=50,
-        )
-
-        metric_column = f"metrics.{MLFLOW_PRIMARY_METRIC}"
-        if runs.empty:
-            return ModelState(
-                error=(
-                    f"No finished runs found in experiment "
-                    f"'{MLFLOW_EXPERIMENT_NAME}'."
-                )
-            )
-
-        if metric_column not in runs.columns:
-            return ModelState(
-                error=(
-                    f"Metric '{MLFLOW_PRIMARY_METRIC}' was not logged in "
-                    f"experiment '{MLFLOW_EXPERIMENT_NAME}'."
-                )
-            )
-
-        ranked_runs = runs.dropna(subset=[metric_column])
-        if ranked_runs.empty:
-            return ModelState(
-                error=(
-                    f"No runs in experiment '{MLFLOW_EXPERIMENT_NAME}' include "
-                    f"metric '{MLFLOW_PRIMARY_METRIC}'."
-                )
-            )
-
-        best_run = ranked_runs.iloc[0]
-        run_id = str(best_run["run_id"])
-        metric_value = float(best_run[metric_column])
-        model_uri = f"runs:/{run_id}/{MLFLOW_MODEL_ARTIFACT_PATH}"
         model = mlflow.pyfunc.load_model(model_uri=model_uri)
+        resolved_version, resolved_run_id = _resolve_registry_metadata(model_uri)
+        metadata_run_id = getattr(getattr(model, "metadata", None), "run_id", None)
+        run_id = resolved_run_id or metadata_run_id
 
         logger.info(
-            "Loaded model from run_id=%s with %s=%s",
+            "Loaded model from MLflow using model_uri=%s, run_id=%s, version=%s",
+            model_uri,
             run_id,
-            MLFLOW_PRIMARY_METRIC,
-            metric_value,
+            resolved_version,
         )
-        return ModelState(model=model, run_id=run_id, metric_value=metric_value)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Failed to load model from MLflow")
+        return ModelState(
+            model=model,
+            model_uri=model_uri,
+            model_version=resolved_version,
+            run_id=run_id,
+        )
+    except Exception as exc:
+        logger.exception("Failed to load model from MLflow using model_uri=%s", model_uri)
         return ModelState(error=str(exc))
 
 
 def reload_model() -> ModelState:
     global MODEL_STATE
-    MODEL_STATE = _load_best_model_from_mlflow()
+
+    primary_state = _load_model_from_mlflow(MLFLOW_MODEL_URI)
+    MODEL_STATE = primary_state
     return MODEL_STATE
 
 
-def _predict(features: list[float]) -> float:
-    feature_names = [f"f{index}" for index in range(len(features))]
-    inference_frame = pd.DataFrame([features], columns=feature_names)
+def reload_trend_data() -> TrendState:
+    global TREND_STATE
+
+    try:
+        lookup = load_trend_lookup(TREND_SIGNALS_PATH)
+        TREND_STATE = TrendState(
+            lookup=lookup,
+            source_path=str(TREND_SIGNALS_PATH),
+        )
+        logger.info("Loaded trend signals from %s", TREND_SIGNALS_PATH)
+        return TREND_STATE
+    except Exception as exc:
+        logger.exception("Failed to load trend signals from %s", TREND_SIGNALS_PATH)
+        TREND_STATE = TrendState(
+            source_path=str(TREND_SIGNALS_PATH),
+            error=str(exc),
+        )
+        return TREND_STATE
+
+
+def _predict_timeframe(payload: PredictRequest) -> tuple[str, dict[str, float]]:
+    if TREND_STATE.lookup is None:
+        raise RuntimeError("Trend signals are not loaded.")
+
+    item = {
+        "item_name": payload.item_name.strip(),
+        "color": normalize_token(payload.color),
+        "category": normalize_token(payload.category),
+        "material": normalize_token(payload.material),
+    }
+
+    inference_frame = build_feature_frame([item], TREND_STATE.lookup)
     predictions = MODEL_STATE.model.predict(inference_frame)
-    return float(predictions[0])
+    model_prediction = str(predictions[0])
+
+    alignment_scores = compute_alignment_scores(item=item, lookup=TREND_STATE.lookup)
+    if model_prediction not in TIMEFRAMES:
+        logger.warning(
+            "Model returned unexpected timeframe '%s'; falling back to strongest "
+            "alignment score.",
+            model_prediction,
+        )
+        best_timeframe = max(TIMEFRAMES, key=lambda timeframe: alignment_scores[timeframe])
+    else:
+        best_timeframe = model_prediction
+
+    rounded_scores = {
+        timeframe: round(float(alignment_scores[timeframe]), 6) for timeframe in TIMEFRAMES
+    }
+    return best_timeframe, rounded_scores
 
 
 @app.on_event("startup")
-def load_model_on_startup() -> None:
+def load_runtime_on_startup() -> None:
+    reload_trend_data()
     reload_model()
 
 
 @app.get("/", response_model=RootResponse)
 def root() -> RootResponse:
-    return RootResponse(message="Welcome to the MLflow-backed prediction server.")
+    return RootResponse(message="Welcome to the MLflow-backed timeframe recommendation server.")
 
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    current_status = "healthy" if MODEL_STATE.loaded else "degraded"
+    current_status = "healthy" if MODEL_STATE.loaded and TREND_STATE.loaded else "degraded"
     return HealthResponse(
         status=current_status,
         model_loaded=MODEL_STATE.loaded,
+        trend_data_loaded=TREND_STATE.loaded,
         tracking_uri=MLFLOW_TRACKING_URI,
-        experiment_name=MLFLOW_EXPERIMENT_NAME,
-        metric_name=MLFLOW_PRIMARY_METRIC,
+        configured_model_uri=MLFLOW_MODEL_URI,
+        configured_trend_data_path=str(TREND_SIGNALS_PATH),
+        active_model_uri=MODEL_STATE.model_uri,
+        model_version=MODEL_STATE.model_version,
         run_id=MODEL_STATE.run_id,
-        metric_value=MODEL_STATE.metric_value,
         error=MODEL_STATE.error,
+        trend_error=TREND_STATE.error,
     )
 
 
 @app.post("/reload-model", response_model=ReloadModelResponse)
 def reload_model_endpoint() -> ReloadModelResponse:
-    state = reload_model()
+    trend_state = reload_trend_data()
+    model_state = reload_model()
     return ReloadModelResponse(
-        loaded=state.loaded,
-        run_id=state.run_id,
-        metric_name=MLFLOW_PRIMARY_METRIC,
-        metric_value=state.metric_value,
-        error=state.error,
+        loaded=model_state.loaded,
+        trend_data_loaded=trend_state.loaded,
+        configured_model_uri=MLFLOW_MODEL_URI,
+        configured_trend_data_path=str(TREND_SIGNALS_PATH),
+        active_model_uri=model_state.model_uri,
+        model_version=model_state.model_version,
+        run_id=model_state.run_id,
+        error=model_state.error,
+        trend_error=trend_state.error,
     )
 
 
@@ -200,21 +300,19 @@ def predict(payload: PredictRequest) -> PredictResponse:
             detail=detail,
         )
 
-    if len(payload.features) == 0:
+    if not TREND_STATE.loaded:
+        detail = TREND_STATE.error or "Trend signal data is not loaded."
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="`features` must include at least one numeric value.",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=detail,
         )
 
-    if any(not math.isfinite(value) for value in payload.features):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="All feature values must be finite numbers.",
-        )
-
-    prediction = _predict(payload.features)
+    best_timeframe, timeframe_scores = _predict_timeframe(payload)
     return PredictResponse(
-        prediction=prediction,
+        item_name=payload.item_name,
+        best_timeframe=best_timeframe,
+        timeframe_scores=timeframe_scores,
         model_loaded=MODEL_STATE.loaded,
+        model_uri=MODEL_STATE.model_uri,
         run_id=MODEL_STATE.run_id,
     )
