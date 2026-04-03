@@ -6,66 +6,7 @@ trndly is a fashion trend forecasting platform that helps secondhand apparel res
 
 **Core stack:** React frontend, Python/FastAPI backend, GCP-managed data and ML infrastructure.
 
-```mermaid
-flowchart TB
-  subgraph frontend [Frontend]
-    ReactApp["React App<br/>(Firebase Hosting)"]
-  end
-
-  subgraph auth [Auth]
-    FirebaseAuth["Firebase Auth"]
-  end
-
-  subgraph backend [Backend API]
-    FastAPI["FastAPI<br/>(Cloud Run)"]
-  end
-
-  subgraph dataPipeline [Data Collection Pipeline]
-    Scheduler["Cloud Scheduler"]
-    Collectors["Scraper Jobs<br/>(Cloud Run Jobs)"]
-    PubSub["Pub/Sub"]
-  end
-
-  subgraph storage [Storage Layer]
-    GCS["Cloud Storage<br/>(raw data + model artifacts)"]
-    BigQuery["BigQuery<br/>(trend warehouse)"]
-    Firestore["Firestore<br/>(user/app data)"]
-  end
-
-  subgraph mlPipeline [ML Pipeline]
-    ETL["ETL Jobs<br/>(Cloud Run Jobs)"]
-    Training["Training Jobs<br/>(Cloud Run Jobs)"]
-    ModelRegistry["Model Registry<br/>(Vertex AI)"]
-  end
-
-  subgraph cicd [CI/CD]
-    GitHubActions["GitHub Actions"]
-    ArtifactRegistry["Artifact Registry"]
-  end
-
-  ReactApp <-->|REST API| FastAPI
-  ReactApp <--> FirebaseAuth
-  FastAPI <--> Firestore
-  FastAPI <--> BigQuery
-  FastAPI -->|load models| GCS
-
-  Scheduler -->|trigger| Collectors
-  Collectors -->|raw data| GCS
-  Collectors -->|notify| PubSub
-  PubSub -->|trigger| ETL
-  ETL -->|read| GCS
-  ETL -->|write| BigQuery
-
-  Scheduler -->|trigger| Training
-  Training -->|read| BigQuery
-  Training -->|write artifacts| GCS
-  Training -->|register| ModelRegistry
-
-  GitHubActions -->|push images| ArtifactRegistry
-  GitHubActions -->|deploy| FastAPI
-```
-
-
+> TODO: mermaid diagram
 
 ---
 
@@ -124,26 +65,6 @@ GET    /api/v1/inventory             # list user inventory
 ---
 
 ## 3. Data Collection Pipeline
-
-```mermaid
-flowchart LR
-  Scheduler["Cloud Scheduler<br/>(cron)"] -->|trigger| RetailJob["Retail Scraper<br/>(Cloud Run Job)"]
-  Scheduler -->|trigger| PinterestJob["Pinterest Collector<br/>(Cloud Run Job)"]
-  Scheduler -->|trigger| RedditJob["Reddit Collector<br/>(Cloud Run Job)"]
-  Scheduler -->|trigger| GoogleTrendsJob["Google Trends Collector<br/>(Cloud Run Job)"]
-
-  RetailJob -->|raw JSON| GCS["GCS<br/>gs://trndly-raw/{source}/{date}/"]
-  PinterestJob -->|raw JSON| GCS
-  RedditJob -->|raw JSON| GCS
-  GoogleTrendsJob -->|raw JSON| GCS
-
-  RetailJob -->|done| PubSub["Pub/Sub<br/>topic: raw-data-ready"]
-  PinterestJob -->|done| PubSub
-  RedditJob -->|done| PubSub
-  GoogleTrendsJob -->|done| PubSub
-```
-
-
 
 ### Sources and Cadence
 

@@ -1,0 +1,6 @@
+fastapi
+mlflow
+numpy
+pandas
+python-dotenv
+uvicorn
