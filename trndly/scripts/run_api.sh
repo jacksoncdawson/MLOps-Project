@@ -28,8 +28,5 @@ fi
 cd "${ROOT_DIR}/backend/services"
 
 echo "Starting API at http://${HOST}:${PORT}"
-if [[ "${AUTO_RELOAD}" == "1" ]]; then
-  exec "${PYTHON_BIN}" -m uvicorn scheduleServer:app --reload --reload-dir . --host "${HOST}" --port "${PORT}"
-fi
 
 exec "${PYTHON_BIN}" -m uvicorn scheduleServer:app --host "${HOST}" --port "${PORT}"

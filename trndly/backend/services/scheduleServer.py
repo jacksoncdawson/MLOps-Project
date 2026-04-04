@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -13,11 +14,14 @@ from fastapi import FastAPI, HTTPException, status
 from mlflow.tracking import MlflowClient
 from pydantic import BaseModel, Field, field_validator
 
+# Add project root to sys.path
 SERVICE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SERVICE_DIR.parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
+
+# Local imports
 from pipelines.training.feature_contract import (
     TIMEFRAMES,
     TrendLookup,
@@ -27,9 +31,7 @@ from pipelines.training.feature_contract import (
     normalize_token,
 )
 
-app = FastAPI(title="MLflow-backed Timeframe Recommendation Service")
-logger = logging.getLogger(__name__)
-
+# ENV VARIABLES
 ENV_PATH = SERVICE_DIR / ".env"
 load_dotenv(dotenv_path=ENV_PATH)
 
@@ -47,6 +49,12 @@ TREND_SIGNALS_PATH = (
     else (SERVICE_DIR / _configured_trend_signals_path).resolve()
 )
 
+
+# Initialize logger
+logger = logging.getLogger(__name__)
+
+
+# DATA CLASSES
 
 @dataclass
 class ModelState:
@@ -74,6 +82,22 @@ class TrendState:
 
 MODEL_STATE = ModelState()
 TREND_STATE = TrendState(source_path=str(TREND_SIGNALS_PATH))
+
+
+# --- FASTAPI APP ---
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    reload_trend_data()
+    reload_model()
+    yield
+
+
+# Initialize FastAPI app
+app = FastAPI(
+    title="MLflow-backed Timeframe Recommendation Service",
+    lifespan=lifespan,
+)
 
 
 class RootResponse(BaseModel):
@@ -244,13 +268,6 @@ def _predict_timeframe(payload: PredictRequest) -> tuple[str, dict[str, float]]:
     }
     return best_timeframe, rounded_scores
 
-
-@app.on_event("startup")
-def load_runtime_on_startup() -> None:
-    reload_trend_data()
-    reload_model()
-
-
 @app.get("/", response_model=RootResponse)
 def root() -> RootResponse:
     return RootResponse(message="Welcome to the MLflow-backed timeframe recommendation server.")
@@ -271,23 +288,6 @@ def health() -> HealthResponse:
         run_id=MODEL_STATE.run_id,
         error=MODEL_STATE.error,
         trend_error=TREND_STATE.error,
-    )
-
-
-@app.post("/reload-model", response_model=ReloadModelResponse)
-def reload_model_endpoint() -> ReloadModelResponse:
-    trend_state = reload_trend_data()
-    model_state = reload_model()
-    return ReloadModelResponse(
-        loaded=model_state.loaded,
-        trend_data_loaded=trend_state.loaded,
-        configured_model_uri=MLFLOW_MODEL_URI,
-        configured_trend_data_path=str(TREND_SIGNALS_PATH),
-        active_model_uri=model_state.model_uri,
-        model_version=model_state.model_version,
-        run_id=model_state.run_id,
-        error=model_state.error,
-        trend_error=trend_state.error,
     )
 
 
