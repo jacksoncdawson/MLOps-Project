@@ -34,3 +34,4 @@ env/
 
 # Data
 **/data/
+.env
