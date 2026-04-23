@@ -95,7 +95,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--data-version",
-        default=os.getenv("DATA_VERSION", "synthetic-v1"),
+        default=os.getenv("DATA_VERSION", "current-signal-v1"),
         help="Logical data version tag for reproducibility.",
     )
     return parser.parse_args()

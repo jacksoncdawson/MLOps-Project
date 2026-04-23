@@ -26,7 +26,7 @@ from pipelines.training.feature_contract import (
     TIMEFRAMES,
     TrendLookup,
     build_feature_frame,
-    compute_alignment_scores,
+    compute_feature_scores,
     load_trend_lookup,
     normalize_token,
 )
@@ -136,7 +136,7 @@ class PredictRequest(BaseModel):
 class PredictResponse(BaseModel):
     item_name: str
     best_timeframe: str
-    timeframe_scores: dict[str, float]
+    feature_scores: dict[str, float]
     model_loaded: bool
     model_uri: Optional[str]
     run_id: Optional[str]
@@ -252,20 +252,17 @@ def _predict_timeframe(payload: PredictRequest) -> tuple[str, dict[str, float]]:
     predictions = MODEL_STATE.model.predict(inference_frame)
     model_prediction = str(predictions[0])
 
-    alignment_scores = compute_alignment_scores(item=item, lookup=TREND_STATE.lookup)
     if model_prediction not in TIMEFRAMES:
         logger.warning(
-            "Model returned unexpected timeframe '%s'; falling back to strongest "
-            "alignment score.",
+            "Model returned unexpected timeframe '%s'; falling back to 'current'.",
             model_prediction,
         )
-        best_timeframe = max(TIMEFRAMES, key=lambda timeframe: alignment_scores[timeframe])
+        best_timeframe = TIMEFRAMES[0]
     else:
         best_timeframe = model_prediction
 
-    rounded_scores = {
-        timeframe: round(float(alignment_scores[timeframe]), 6) for timeframe in TIMEFRAMES
-    }
+    feature_scores = compute_feature_scores(item=item, lookup=TREND_STATE.lookup)
+    rounded_scores = {key: round(float(val), 6) for key, val in feature_scores.items()}
     return best_timeframe, rounded_scores
 
 @app.get("/", response_model=RootResponse)
@@ -307,11 +304,11 @@ def predict(payload: PredictRequest) -> PredictResponse:
             detail=detail,
         )
 
-    best_timeframe, timeframe_scores = _predict_timeframe(payload)
+    best_timeframe, feature_scores = _predict_timeframe(payload)
     return PredictResponse(
         item_name=payload.item_name,
         best_timeframe=best_timeframe,
-        timeframe_scores=timeframe_scores,
+        feature_scores=feature_scores,
         model_loaded=MODEL_STATE.loaded,
         model_uri=MODEL_STATE.model_uri,
         run_id=MODEL_STATE.run_id,
