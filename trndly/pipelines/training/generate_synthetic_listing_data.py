@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -15,12 +14,12 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
 from pipelines.training.feature_contract import (  # noqa: E402
+    DEFAULT_MISSING_SCORE,
     FEATURE_TYPES,
     FEATURE_VECTOR_COLUMNS,
     TARGET_COLUMN_DEFAULT,
     TIMEFRAMES,
     build_trend_lookup,
-    compute_alignment_scores,
     item_to_feature_row,
 )
 
@@ -104,15 +103,6 @@ def parse_args() -> argparse.Namespace:
         help="Random seed for deterministic generation.",
     )
     parser.add_argument(
-        "--label-temperature",
-        type=float,
-        default=9.0,
-        help=(
-            "Higher values make sampled labels more likely to match the "
-            "strongest timeframe score."
-        ),
-    )
-    parser.add_argument(
         "--label-noise",
         type=float,
         default=0.04,
@@ -121,44 +111,24 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _softmax(values: np.ndarray) -> np.ndarray:
-    shifted = values - np.max(values)
-    exponentiated = np.exp(shifted)
-    total = exponentiated.sum()
-    if math.isclose(float(total), 0.0):
-        return np.full_like(exponentiated, fill_value=1.0 / len(exponentiated))
-    return exponentiated / total
-
-
-def _feature_profile(
-    rng: np.random.Generator,
-    preferred_index: int,
-) -> np.ndarray:
-    distance = np.abs(np.arange(len(TIMEFRAMES), dtype=float) - float(preferred_index))
-    spread = rng.uniform(0.8, 1.9)
-    curve = np.exp(-(distance**2) / (2 * spread * spread))
-    baseline = rng.uniform(0.08, 0.22)
-    scaled = baseline + (0.88 - baseline) * curve
-    noise = rng.normal(loc=0.0, scale=0.03, size=len(TIMEFRAMES))
-    return np.clip(scaled + noise, a_min=0.0, a_max=1.0)
-
-
 def generate_trend_signals(seed: int) -> pd.DataFrame:
+    """
+    Generate a synthetic trend_signals.csv with a single `current` score
+    per (feature_type, feature_value). Scores are uniformly distributed
+    across 0–1 so the full range of the feature space is covered.
+    """
     rng = np.random.default_rng(seed)
     rows: list[dict[str, Any]] = []
 
     for feature_type in FEATURE_TYPES:
-        possible_values = FEATURE_VALUES[feature_type]
-        for feature_value in possible_values:
-            preferred_index = int(rng.integers(low=0, high=len(TIMEFRAMES)))
-            profile = _feature_profile(rng=rng, preferred_index=preferred_index)
-            row: dict[str, Any] = {
-                "feature_type": feature_type,
-                "feature_value": feature_value,
-            }
-            for timeframe_index, timeframe in enumerate(TIMEFRAMES):
-                row[timeframe] = round(float(profile[timeframe_index]), 6)
-            rows.append(row)
+        for feature_value in FEATURE_VALUES[feature_type]:
+            rows.append(
+                {
+                    "feature_type": feature_type,
+                    "feature_value": feature_value,
+                    "current": round(float(rng.uniform(0.05, 0.95)), 6),
+                }
+            )
 
     return pd.DataFrame(rows)
 
@@ -177,26 +147,40 @@ def _sample_item(rng: np.random.Generator, index: int) -> dict[str, str]:
 
 
 def _sample_label(
-    alignment_scores: dict[str, float],
+    avg_current: float,
     rng: np.random.Generator,
-    temperature: float,
     label_noise: float,
 ) -> str:
-    logits = np.array([alignment_scores[timeframe] for timeframe in TIMEFRAMES], dtype=float)
-    probabilities = _softmax(logits * temperature)
-    label = str(rng.choice(TIMEFRAMES, p=probabilities))
+    """
+    Sample a best_timeframe label from avg_current trend score.
+
+    High current score → item is trending now → label skews toward "current".
+    Low current score  → item will trend later → label skews toward future timeframes.
+
+    This creates a learnable signal: the model can discover that high
+    avg_current predicts "current" and low avg_current predicts a later horizon.
+    """
+    if avg_current >= 0.65:
+        base_label = "current"
+    elif avg_current >= 0.50:
+        base_label = "next_week"
+    elif avg_current >= 0.35:
+        base_label = "next_month"
+    elif avg_current >= 0.20:
+        base_label = "three_months"
+    else:
+        base_label = "six_months"
 
     if rng.random() < label_noise:
-        label = str(rng.choice(TIMEFRAMES))
-    return label
+        return str(rng.choice(TIMEFRAMES))
+    return base_label
 
 
 def build_supervised_split(
     size: int,
     split_name: str,
-    lookup: dict[str, dict[str, dict[str, float]]],
+    lookup: dict[str, dict[str, float]],
     rng: np.random.Generator,
-    label_temperature: float,
     label_noise: float,
     index_offset: int = 0,
 ) -> pd.DataFrame:
@@ -204,12 +188,11 @@ def build_supervised_split(
 
     for row_index in range(size):
         item = _sample_item(rng=rng, index=index_offset + row_index)
-        alignment_scores = compute_alignment_scores(item=item, lookup=lookup)
         feature_row = item_to_feature_row(item=item, lookup=lookup)
+        avg_current = feature_row.get("avg_current", DEFAULT_MISSING_SCORE)
         best_timeframe = _sample_label(
-            alignment_scores=alignment_scores,
+            avg_current=avg_current,
             rng=rng,
-            temperature=label_temperature,
             label_noise=label_noise,
         )
         rows.append(
@@ -229,27 +212,9 @@ def build_supervised_split(
 
 def build_inference_payloads(
     size: int,
-    lookup: dict[str, dict[str, dict[str, float]]],
     rng: np.random.Generator,
-) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
-    payloads: list[dict[str, str]] = []
-    payloads_with_reference: list[dict[str, Any]] = []
-
-    for item_index in range(size):
-        item = _sample_item(rng=rng, index=10_000 + item_index)
-        alignment_scores = compute_alignment_scores(item=item, lookup=lookup)
-        expected_best = max(TIMEFRAMES, key=lambda timeframe: alignment_scores[timeframe])
-
-        payloads.append(item)
-        payloads_with_reference.append(
-            {
-                **item,
-                "expected_best_timeframe": expected_best,
-                "alignment_scores": alignment_scores,
-            }
-        )
-
-    return payloads, payloads_with_reference
+) -> list[dict[str, str]]:
+    return [_sample_item(rng=rng, index=10_000 + i) for i in range(size)]
 
 
 def main() -> None:
@@ -266,7 +231,6 @@ def main() -> None:
         split_name="train",
         lookup=lookup,
         rng=rng,
-        label_temperature=args.label_temperature,
         label_noise=args.label_noise,
         index_offset=0,
     )
@@ -275,7 +239,6 @@ def main() -> None:
         split_name="val",
         lookup=lookup,
         rng=rng,
-        label_temperature=args.label_temperature,
         label_noise=args.label_noise,
         index_offset=args.train_size,
     )
@@ -284,34 +247,23 @@ def main() -> None:
         split_name="test",
         lookup=lookup,
         rng=rng,
-        label_temperature=args.label_temperature,
         label_noise=args.label_noise,
         index_offset=args.train_size + args.val_size,
     )
 
-    user_payloads, payloads_with_reference = build_inference_payloads(
-        size=args.inference_size,
-        lookup=lookup,
-        rng=rng,
-    )
+    user_payloads = build_inference_payloads(size=args.inference_size, rng=rng)
 
     trend_path = output_dir / "trend_signals.csv"
     train_path = output_dir / "train.csv"
     val_path = output_dir / "val.csv"
     test_path = output_dir / "test.csv"
     payloads_path = output_dir / "user_upload_items.json"
-    payloads_with_reference_path = output_dir / "user_upload_items_with_reference.json"
 
     trend_signals.to_csv(trend_path, index=False)
     train_frame.to_csv(train_path, index=False)
     val_frame.to_csv(val_path, index=False)
     test_frame.to_csv(test_path, index=False)
-
     payloads_path.write_text(json.dumps(user_payloads, indent=2), encoding="utf-8")
-    payloads_with_reference_path.write_text(
-        json.dumps(payloads_with_reference, indent=2),
-        encoding="utf-8",
-    )
 
     print("Synthetic data generated:")
     print(f"- Trend signals: {trend_path}")
@@ -319,7 +271,6 @@ def main() -> None:
     print(f"- Validation split: {val_path} ({len(val_frame)} rows)")
     print(f"- Test split: {test_path} ({len(test_frame)} rows)")
     print(f"- User upload payloads: {payloads_path} ({len(user_payloads)} items)")
-    print(f"- Payloads with reference labels: {payloads_with_reference_path}")
 
 
 if __name__ == "__main__":

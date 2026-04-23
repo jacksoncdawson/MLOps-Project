@@ -1,0 +1,15 @@
+2026/04/23-09:56:37.574 3bde60 Reusing MANIFEST /Users/vivianjohnson/Desktop/MLOps-Project/trndly/pipelines/collectors/.pacsun_browser_profile/Default/IndexedDB/https_www.pacsun.com_0.indexeddb.leveldb/MANIFEST-000001
+2026/04/23-09:56:37.575 3bde60 Recovering log #12
+2026/04/23-09:56:37.575 3bde60 Reusing old log /Users/vivianjohnson/Desktop/MLOps-Project/trndly/pipelines/collectors/.pacsun_browser_profile/Default/IndexedDB/https_www.pacsun.com_0.indexeddb.leveldb/000012.log 
+2026/04/23-09:56:37.575 3bde60 Delete type=2 #11
+2026/04/23-09:56:37.593 3bde71 Manual compaction at level-0 from '\x00\x05\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\x06\x00\x00\x00' @ 0 : 0; will stop at (end)
+2026/04/23-09:56:38.423 3bde60 Level-0 table #17: started
+2026/04/23-09:56:38.424 3bde60 Level-0 table #17: 1639 bytes OK
+2026/04/23-09:56:38.426 3bde60 Delete type=0 #12
+2026/04/23-09:56:38.426 3bde60 Manual compaction at level-0 from '\x00\x06\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\x07\x00\x00\x00' @ 0 : 0; will stop at '\x00\x06\x01\x03\x03\x00\x00\x00\x00\x00\x00\xf0?' @ 278 : 1
+2026/04/23-09:56:38.426 3bde60 Compacting 1@0 + 1@1 files
+2026/04/23-09:56:38.428 3bde60 Generated table #18@0: 35 keys, 832 bytes
+2026/04/23-09:56:38.428 3bde60 Compacted 1@0 + 1@1 files => 832 bytes
+2026/04/23-09:56:38.429 3bde60 compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/04/23-09:56:38.429 3bde60 Delete type=2 #17
+2026/04/23-09:56:38.430 3bde60 Manual compaction at level-0 from '\x00\x06\x01\x03\x03\x00\x00\x00\x00\x00\x00\xf0?' @ 278 : 1 .. '\x00\x07\x00\x00\x00' @ 0 : 0; will stop at (end)

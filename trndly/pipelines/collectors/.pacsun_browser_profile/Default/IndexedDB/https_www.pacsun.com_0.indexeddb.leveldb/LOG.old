@@ -1,0 +1,24 @@
+2026/04/23-09:53:16.188 3bde61 Reusing MANIFEST /Users/vivianjohnson/Desktop/MLOps-Project/trndly/pipelines/collectors/.pacsun_browser_profile/Default/IndexedDB/https_www.pacsun.com_0.indexeddb.leveldb/MANIFEST-000001
+2026/04/23-09:53:16.189 3bde61 Recovering log #6
+2026/04/23-09:53:16.189 3bde61 Reusing old log /Users/vivianjohnson/Desktop/MLOps-Project/trndly/pipelines/collectors/.pacsun_browser_profile/Default/IndexedDB/https_www.pacsun.com_0.indexeddb.leveldb/000006.log 
+2026/04/23-09:53:16.198 3bde60 Level-0 table #10: started
+2026/04/23-09:53:16.199 3bde60 Level-0 table #10: 540 bytes OK
+2026/04/23-09:53:16.200 3bde60 Delete type=0 #6
+2026/04/23-09:53:16.200 3bde60 Manual compaction at level-0 from '\x00\x03\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\x04\x00\x00\x00' @ 0 : 0; will stop at '\x00\x03\x00\x00\x05' @ 116 : 1
+2026/04/23-09:53:16.200 3bde60 Compacting 1@0 + 1@1 files
+2026/04/23-09:53:16.201 3bde60 Generated table #11@0: 32 keys, 712 bytes
+2026/04/23-09:53:16.201 3bde60 Compacted 1@0 + 1@1 files => 712 bytes
+2026/04/23-09:53:16.202 3bde60 compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/04/23-09:53:16.202 3bde60 Delete type=2 #10
+2026/04/23-09:53:16.203 3bde60 Manual compaction at level-0 from '\x00\x03\x00\x00\x05' @ 116 : 1 .. '\x00\x04\x00\x00\x00' @ 0 : 0; will stop at (end)
+2026/04/23-09:53:16.674 3bde60 Level-0 table #13: started
+2026/04/23-09:53:16.675 3bde60 Level-0 table #13: 1405 bytes OK
+2026/04/23-09:53:16.676 3bde60 Delete type=2 #7
+2026/04/23-09:53:16.676 3bde60 Delete type=0 #9
+2026/04/23-09:53:16.677 3bde60 Manual compaction at level-0 from '\x00\x04\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\x05\x00\x00\x00' @ 0 : 0; will stop at '\x00\x04\x01\x03\x03\x00\x00\x00\x00\x00\x00\xf0?' @ 169 : 1
+2026/04/23-09:53:16.677 3bde60 Compacting 1@0 + 1@1 files
+2026/04/23-09:53:16.677 3bde60 Generated table #14@0: 33 keys, 755 bytes
+2026/04/23-09:53:16.677 3bde60 Compacted 1@0 + 1@1 files => 755 bytes
+2026/04/23-09:53:16.678 3bde60 compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/04/23-09:53:16.679 3bde60 Delete type=2 #13
+2026/04/23-09:53:16.679 3bde60 Manual compaction at level-0 from '\x00\x04\x01\x03\x03\x00\x00\x00\x00\x00\x00\xf0?' @ 169 : 1 .. '\x00\x05\x00\x00\x00' @ 0 : 0; will stop at (end)
