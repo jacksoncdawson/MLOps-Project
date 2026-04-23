@@ -67,15 +67,15 @@ from pipelines.training.feature_contract import (  # noqa: E402
 # --------------------------------------------------------------------------- #
 
 HOLLISTER_PAGES = [
-    {"url": "https://www.hollisterco.com/shop/us/girls-new-arrivals",       "label": "women new arrivals"},
-    {"url": "https://www.hollisterco.com/shop/us/guys-new-arrivals",        "label": "men new arrivals"},
-    {"url": "https://www.hollisterco.com/shop/us/girls-tops",               "label": "women tops"},
-    {"url": "https://www.hollisterco.com/shop/us/guys-tops",                "label": "men tops"},
-    {"url": "https://www.hollisterco.com/shop/us/girls-bottoms",            "label": "women bottoms"},
-    {"url": "https://www.hollisterco.com/shop/us/guys-bottoms",             "label": "men bottoms"},
-    {"url": "https://www.hollisterco.com/shop/us/girls-dresses-and-rompers","label": "women dresses"},
-    {"url": "https://www.hollisterco.com/shop/us/guys-jackets-and-coats",   "label": "men outerwear"},
-    {"url": "https://www.hollisterco.com/shop/us/girls-jackets-and-coats",  "label": "women outerwear"},
+    {"url": "https://www.hollisterco.com/shop/us/womens-new-arrivals",       "label": "women new arrivals"},
+    {"url": "https://www.hollisterco.com/shop/us/mens-new-arrivals",        "label": "men new arrivals"},
+    {"url": "https://www.hollisterco.com/shop/us/womens-tops",               "label": "women tops"},
+    {"url": "https://www.hollisterco.com/shop/us/mens-tops",                "label": "men tops"},
+    {"url": "https://www.hollisterco.com/shop/us/womens-bottoms",            "label": "women bottoms"},
+    {"url": "https://www.hollisterco.com/shop/us/mens-bottoms",             "label": "men bottoms"},
+    {"url": "https://www.hollisterco.com/shop/us/womens-dresses-and-rompers","label": "women dresses"},
+    {"url": "https://www.hollisterco.com/shop/us/mens-jackets-and-coats",   "label": "men outerwear"},
+    {"url": "https://www.hollisterco.com/shop/us/womens-jackets-and-coats",  "label": "women outerwear"},
 ]
 
 # --------------------------------------------------------------------------- #
@@ -106,16 +106,54 @@ PRODUCT_NAME_SELECTORS = [
 # COLOR SWATCH selectors — Hollister attaches the color name to swatch buttons
 # via aria-label (e.g. aria-label="Rinse Black") rather than putting it in the
 # product title. We try these to get per-product color data.
+#
+# Hollister has shipped multiple swatch implementations over time:
+#   - <button aria-label="Rinse Black"> with class names like *Swatch*
+#   - <img alt="Rinse Black" class="...swatch..."> for image-based swatches
+#   - <a title="Rinse Black"> on the older PWA
+#   - data-* attributes on the parent element
+# These selectors are tried in order; the first non-empty match wins.
 COLOR_SWATCH_SELECTORS = [
+    # Hollister 2025 markup: swatches are labeled by hidden <label> elements
+    # whose INNER TEXT is "<Color> swatch" (e.g. "Brown swatch", "Washed
+    # Black swatch"). Extractor reads innerText from these.
+    "[data-testid='catalog-product-card-swatch-tile'] label.screen-reader-text",
+    "[data-testid='catalog-product-card-swatch-tile'] label",
+    "label.screen-reader-text[for*='__swatch']",
+    "label.screen-reader-text[for*='swatch']",
+    # Modern testids
     "[data-testid='color-swatch'] [aria-label]",
+    "[data-testid*='swatch'] [aria-label]",
+    "[data-test-id*='swatch'] [aria-label]",
+    "[data-testid*='color'] [aria-label]",
+    # React/styled-component class patterns
     "[class*='ColorSwatch'] [aria-label]",
     "[class*='color-swatch'] [aria-label]",
+    "[class*='colorSwatch'] [aria-label]",
     "[class*='Swatch'] button[aria-label]",
     "[class*='swatch'] button[aria-label]",
+    "[class*='Swatch'] a[aria-label]",
+    "[class*='swatch'] a[aria-label]",
+    # Image-based swatches: the color name lives in alt= on the <img>
+    "[class*='Swatch'] img[alt]",
+    "[class*='swatch'] img[alt]",
+    "img[class*='swatch'][alt]",
+    "img[class*='Swatch'][alt]",
+    # Title-attribute fallback (older PWA / accessibility tooltips)
+    "[class*='Swatch'] [title]",
+    "[class*='swatch'] [title]",
+    "a[class*='swatch'][title]",
+    # Generic aria-label probes
     "button[aria-label][class*='color']",
     "button[aria-label][class*='Color']",
+    "button[aria-label][class*='swatch']",
+    "button[aria-label][class*='Swatch']",
+    # Direct data-* attribute reads
     "[data-color]",
     "[data-color-name]",
+    "[data-swatch-name]",
+    "[data-attr-color]",
+    "[data-variation-color]",
 ]
 
 # Selector to wait for before extracting — signals the product grid is ready
@@ -137,8 +175,11 @@ PRODUCT_GRID_WAIT_SELECTORS = [
 COLOR_KEYWORDS: list[tuple[str, str]] = [
     ("navy", "navy"),
     ("rinse black", "black"),
+    ("washed black", "black"),
+    ("jet black", "black"),
     ("black", "black"),
     ("cloud white", "white"),
+    ("optic white", "white"),
     ("white", "white"),
     ("cream", "white"),
     ("ivory", "white"),
@@ -149,6 +190,11 @@ COLOR_KEYWORDS: list[tuple[str, str]] = [
     ("olive", "green"),
     ("khaki green", "green"),
     ("green", "green"),
+    ("medium wash", "blue"),
+    ("light wash", "blue"),
+    ("dark wash", "blue"),
+    ("indigo wash", "blue"),
+    ("indigo", "blue"),
     ("sky blue", "blue"),
     ("cobalt", "blue"),
     ("blue", "blue"),
@@ -172,8 +218,10 @@ COLOR_KEYWORDS: list[tuple[str, str]] = [
     ("purple", "purple"),
     ("charcoal", "gray"),
     ("heather gray", "gray"),
+    ("heather grey", "gray"),
     ("light gray", "gray"),
     ("dark gray", "gray"),
+    ("grey wash", "gray"),
     ("grey", "gray"),
     ("gray", "gray"),
 ]
@@ -356,11 +404,39 @@ def _extract_product_names(page: "Page") -> list[str]:
     return []
 
 
+def _clean_swatch_label(raw: str) -> str:
+    """
+    Normalize a raw swatch label like "Brown swatch" / "Washed Black swatch"
+    down to just the color name ("Brown" / "Washed Black"). Hollister's
+    screen-reader labels always end with " swatch".
+    """
+    cleaned = raw.strip()
+    # Strip Hollister's trailing " swatch" suffix (case-insensitive)
+    lowered = cleaned.lower()
+    if lowered.endswith(" swatch"):
+        cleaned = cleaned[: -len(" swatch")].strip()
+    elif lowered.endswith("swatch"):
+        cleaned = cleaned[: -len("swatch")].strip()
+    return cleaned
+
+
 def _extract_swatch_colors(page: "Page") -> list[str]:
     """
-    Extract color names from swatch button aria-labels.
-    These are per-swatch labels like "Rinse Black", "Cloud White", etc.
+    Extract color names from swatch elements.
+
+    Tries every selector in COLOR_SWATCH_SELECTORS and, for each element,
+    reads whichever of the following is first non-empty:
+      1. inner text  (Hollister 2025: "<Color> swatch")
+      2. aria-label / alt / title
+      3. data-* color attributes
+    Returns the FIRST selector's non-empty hit so we don't double-count
+    when multiple selectors target the same elements.
     """
+    color_attrs = (
+        "aria-label", "alt", "title",
+        "data-color", "data-color-name", "data-swatch-name",
+        "data-attr-color", "data-variation-color", "data-name",
+    )
     for selector in COLOR_SWATCH_SELECTORS:
         try:
             elements = page.query_selector_all(selector)
@@ -368,14 +444,90 @@ def _extract_swatch_colors(page: "Page") -> list[str]:
                 continue
             labels: list[str] = []
             for el in elements:
-                label = el.get_attribute("aria-label") or el.get_attribute("data-color") or el.get_attribute("data-color-name") or ""
-                if label.strip():
-                    labels.append(label.strip())
+                value = ""
+                # inner text first (Hollister's <label class="screen-reader-text">)
+                try:
+                    text = el.inner_text().strip()
+                except Exception:
+                    text = ""
+                if text:
+                    value = text
+                else:
+                    for attr in color_attrs:
+                        attr_value = el.get_attribute(attr)
+                        if attr_value and attr_value.strip():
+                            value = attr_value.strip()
+                            break
+                if value:
+                    labels.append(_clean_swatch_label(value))
+            # Drop anything that cleaned to an empty string
+            labels = [label for label in labels if label]
             if labels:
                 return labels
         except Exception:
             continue
     return []
+
+
+def _extract_colors_from_jsonld(page: "Page") -> list[str]:
+    """
+    Many e-commerce pages embed product data in <script type='application/ld+json'>
+    using schema.org/Product. The `color` field (or `name` on each variant) often
+    holds the human-readable color even when the DOM doesn't. This is a reliable
+    fallback when swatch selectors miss.
+    """
+    try:
+        return page.evaluate(
+            """
+            () => {
+                const out = [];
+                const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+                for (const s of scripts) {
+                    try {
+                        const data = JSON.parse(s.textContent);
+                        const items = Array.isArray(data) ? data : [data];
+                        for (const item of items) {
+                            const stack = [item];
+                            while (stack.length) {
+                                const node = stack.pop();
+                                if (!node || typeof node !== 'object') continue;
+                                if (typeof node.color === 'string') out.push(node.color);
+                                for (const k of Object.keys(node)) {
+                                    const v = node[k];
+                                    if (Array.isArray(v)) v.forEach(x => stack.push(x));
+                                    else if (v && typeof v === 'object') stack.push(v);
+                                }
+                            }
+                        }
+                    } catch (e) {}
+                }
+                return out;
+            }
+            """
+        ) or []
+    except Exception:
+        return []
+
+
+def _dump_first_tile_html(page: "Page", out_path: Path) -> None:
+    """
+    Debug helper: write the outerHTML of the first product tile we can find
+    so you can manually inspect what swatch markup actually exists today.
+    Only used when --debug is passed.
+    """
+    snippet = ""
+    for selector in PRODUCT_GRID_WAIT_SELECTORS:
+        try:
+            el = page.query_selector(selector)
+            if el:
+                snippet = el.evaluate("el => el.outerHTML") or ""
+                if snippet:
+                    break
+        except Exception:
+            continue
+    if snippet:
+        out_path.write_text(snippet, encoding="utf-8")
+        print(f"    [debug] dumped {len(snippet):,} chars of tile HTML → {out_path}")
 
 
 # --------------------------------------------------------------------------- #
@@ -385,9 +537,16 @@ def _extract_swatch_colors(page: "Page") -> list[str]:
 def scrape_hollister(
     sleep_between_pages: float = 3.0,
     headless: bool = True,
+    debug: bool = False,
+    debug_dir: Path | None = None,
 ) -> tuple[list[str], list[str]]:
     """
     Scrape all Hollister pages.
+
+    If debug=True, on the first page where we find product titles but ZERO
+    swatch colors we dump the first product tile's HTML so you can inspect
+    Hollister's current swatch markup and add new selectors.
+
     Returns (product_titles, swatch_color_labels).
     """
     try:
@@ -399,6 +558,11 @@ def scrape_hollister(
 
     all_titles: list[str] = []
     all_swatch_colors: list[str] = []
+    debug_dumped = False
+    if debug:
+        debug_dir = (debug_dir or Path(__file__).resolve().parent / ".hollister_debug")
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        print(f"  [debug] tile dumps will be written to: {debug_dir}")
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
@@ -460,9 +624,30 @@ def scrape_hollister(
                 titles = _extract_product_names(page)
                 swatches = _extract_swatch_colors(page)
 
-                print(f"    {len(titles)} product titles, {len(swatches)} swatch colors")
+                # Fallback: schema.org/Product JSON-LD often contains color
+                # data even when the DOM swatch markup misses.
+                jsonld_source = ""
+                if not swatches:
+                    jsonld_colors = _extract_colors_from_jsonld(page)
+                    if jsonld_colors:
+                        swatches = jsonld_colors
+                        jsonld_source = " (via JSON-LD)"
+
+                print(
+                    f"    {len(titles)} product titles, "
+                    f"{len(swatches)} swatch colors{jsonld_source}"
+                )
                 all_titles.extend(titles)
                 all_swatch_colors.extend(swatches)
+
+                # Debug dump: capture first product tile when we got titles
+                # but no swatches, so the user can see the actual markup.
+                if debug and not debug_dumped and titles and not swatches:
+                    safe_label = label.replace(" ", "_")
+                    _dump_first_tile_html(
+                        page, debug_dir / f"tile_{safe_label}.html",
+                    )
+                    debug_dumped = True
 
             except Exception as exc:
                 print(f"    ERROR: {exc}")
@@ -579,12 +764,15 @@ KNOWN_FEATURE_VALUES: dict[str, list[str]] = {
 
 
 def parse_args() -> argparse.Namespace:
+    # Each scraper writes to its own per-retailer file so multiple retailers
+    # can be run independently, updated on their own schedule, and then
+    # combined later by combine_trend_signals.py.
     default_output = (
         Path(__file__).resolve().parents[1]
-        / "training" / "synthetic_data" / "trend_signals.csv"
+        / "training" / "synthetic_data" / "trend_signals_hollister.csv"
     )
     parser = argparse.ArgumentParser(
-        description="Scrape Hollister new arrivals and write trend_signals.csv."
+        description="Scrape Hollister new arrivals and write trend_signals_hollister.csv."
     )
     parser.add_argument("--output-path", default=str(default_output))
     parser.add_argument(
@@ -603,6 +791,15 @@ def parse_args() -> argparse.Namespace:
         "--headless", type=lambda v: v.lower() != "false", default=True,
         help="Run headless browser. Pass 'false' for a visible window (default: true).",
     )
+    parser.add_argument(
+        "--debug", action="store_true",
+        help=(
+            "When set, dumps the first product tile's HTML on the first page "
+            "where titles are found but swatch colors are not. Useful for "
+            "discovering Hollister's current swatch markup so new selectors "
+            "can be added to COLOR_SWATCH_SELECTORS."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -620,6 +817,7 @@ def main() -> None:
     titles, swatch_colors = scrape_hollister(
         sleep_between_pages=args.sleep,
         headless=args.headless,
+        debug=args.debug,
     )
 
     print(f"\nTotal collected: {len(titles)} product titles, {len(swatch_colors)} swatch colors")
