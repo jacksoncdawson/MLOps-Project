@@ -4,7 +4,7 @@ Uniqlo retail scraper for trndly trend signals.
 Scrapes Uniqlo's "New Arrivals" and category pages using a real browser
 (Playwright) to count how often each color, category, and material attribute
 appears across featured product listings. Normalizes those counts to 0–1 and
-writes the result as trend_signals.csv.
+writes the result as trend_signals_uniqlo.csv.
 
 WHERE EACH ATTRIBUTE COMES FROM
 --------------------------------
@@ -34,14 +34,15 @@ SETUP (one-time)
 
 Usage:
   python uniqlo_scraper.py
-  python uniqlo_scraper.py --output-path path/to/trend_signals.csv
-  python uniqlo_scraper.py --existing-path trend_signals.csv --blend-weight 0.5
+  python uniqlo_scraper.py --output-path path/to/trend_signals_uniqlo.csv
+  python uniqlo_scraper.py --existing-path trend_signals_uniqlo.csv --blend-weight 0.5
   python uniqlo_scraper.py --headless false
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -412,7 +413,14 @@ def scrape_uniqlo(
 ) -> tuple[list[str], list[str]]:
     """
     Scrape all Uniqlo pages.
-    Returns (product_titles, swatch_color_labels).
+    Returns (product_titles, color_labels).
+
+    Colors are sourced from Uniqlo's internal product API (intercepted via
+    Playwright's response handler) which returns proper color names like
+    "Off White", "Dark Navy", etc. The DOM color chips only carry numeric
+    codes ("37") so this interception approach is required for accurate colors.
+    Falls back to DOM swatch labels and then title keywords if the API yields
+    nothing.
     """
     try:
         from playwright.sync_api import sync_playwright
@@ -423,6 +431,25 @@ def scrape_uniqlo(
 
     all_titles: list[str] = []
     all_swatch_colors: list[str] = []
+    api_colors: list[str] = []
+
+    def _handle_response(response: object) -> None:
+        """Intercept Uniqlo's internal product API to collect real color names."""
+        try:
+            url = response.url  # type: ignore[attr-defined]
+            if "/api/commerce/v5/en/products" not in url:
+                return
+            if response.status != 200:  # type: ignore[attr-defined]
+                return
+            data = response.json()  # type: ignore[attr-defined]
+            items = data.get("result", {}).get("items", [])
+            for item in items:
+                for color_obj in item.get("colors", []):
+                    name = color_obj.get("name", "").strip()
+                    if name:
+                        api_colors.append(name)
+        except Exception:
+            pass
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
@@ -454,6 +481,7 @@ def scrape_uniqlo(
         )
 
         page = context.new_page()
+        page.on("response", _handle_response)
 
         for page_info in UNIQLO_PAGES:
             url = page_info["url"]
@@ -474,7 +502,8 @@ def scrape_uniqlo(
                 titles = _extract_product_names(page)
                 swatches = _extract_swatch_colors(page)
 
-                print(f"    {len(titles)} product titles, {len(swatches)} swatch colors")
+                api_count = len(api_colors)
+                print(f"    {len(titles)} product titles, {len(swatches)} DOM swatches, {api_count} API colors so far")
                 all_titles.extend(titles)
                 all_swatch_colors.extend(swatches)
 
@@ -485,7 +514,14 @@ def scrape_uniqlo(
 
         browser.close()
 
-    return all_titles, all_swatch_colors
+    # Prefer API-intercepted colors (real names) over DOM swatch codes
+    final_colors = api_colors if api_colors else all_swatch_colors
+    if api_colors:
+        print(f"  Using {len(api_colors)} API-intercepted color names")
+    else:
+        print(f"  API interception yielded nothing — falling back to {len(all_swatch_colors)} DOM swatch labels")
+
+    return all_titles, final_colors
 
 
 # --------------------------------------------------------------------------- #
@@ -518,12 +554,13 @@ def count_attribute_frequencies(
         if material:
             counts["material"][material] = counts["material"].get(material, 0) + 1
 
-        # Always extract color from titles for Uniqlo — swatch elements exist
-        # but carry numeric color codes ("37") rather than color names, so
-        # the swatch list is non-empty but useless for keyword matching.
-        color = extract_color(title)
-        if color:
-            counts["color"][color] = counts["color"].get(color, 0) + 1
+        # Color from title only when no swatch/API colors were captured.
+        # When the API interception works, swatch_colors contains real names
+        # (e.g. "Off White", "Dark Navy") and title extraction is unnecessary.
+        if not swatch_colors:
+            color = extract_color(title)
+            if color:
+                counts["color"][color] = counts["color"].get(color, 0) + 1
 
     return counts
 
@@ -594,10 +631,10 @@ KNOWN_FEATURE_VALUES: dict[str, list[str]] = {
 def parse_args() -> argparse.Namespace:
     default_output = (
         Path(__file__).resolve().parents[1]
-        / "training" / "synthetic_data" / "trend_signals.csv"
+        / "training" / "synthetic_data" / "trend_signals_uniqlo.csv"
     )
     parser = argparse.ArgumentParser(
-        description="Scrape Uniqlo new arrivals and write trend_signals.csv."
+        description="Scrape Uniqlo new arrivals and write trend_signals_uniqlo.csv."
     )
     parser.add_argument("--output-path", default=str(default_output))
     parser.add_argument(
@@ -627,6 +664,7 @@ def main() -> None:
     print(
         f"Uniqlo retail scraper\n"
         f"  pages: {len(UNIQLO_PAGES)}  headless: {args.headless}\n"
+        f"  color source: API interception (falls back to DOM swatches, then title keywords)\n"
         f"  output: {output_path}"
     )
 
@@ -635,7 +673,7 @@ def main() -> None:
         headless=args.headless,
     )
 
-    print(f"\nTotal collected: {len(titles)} product titles, {len(swatch_colors)} swatch colors")
+    print(f"\nTotal collected: {len(titles)} product titles, {len(swatch_colors)} colors")
 
     if not titles and not swatch_colors:
         print(

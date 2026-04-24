@@ -4,7 +4,7 @@ American Eagle retail scraper for trndly trend signals.
 Scrapes American Eagle's "New Arrivals" and category pages using a real
 browser (Playwright) to count how often each color, category, and material
 attribute appears across featured product listings. Normalizes those counts
-to 0–1 and writes the result as trend_signals.csv.
+to 0–1 and writes the result as trend_signals_american_eagle.csv.
 
 WHERE EACH ATTRIBUTE COMES FROM
 --------------------------------
@@ -37,14 +37,15 @@ SETUP (one-time)
 
 Usage:
   python american_eagle_scraper.py
-  python american_eagle_scraper.py --output-path path/to/trend_signals.csv
-  python american_eagle_scraper.py --existing-path trend_signals.csv --blend-weight 0.5
+  python american_eagle_scraper.py --output-path path/to/trend_signals_american_eagle.csv
+  python american_eagle_scraper.py --existing-path trend_signals_american_eagle.csv --blend-weight 0.5
   python american_eagle_scraper.py --headless false   # visible browser
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -113,8 +114,16 @@ COLOR_SWATCH_SELECTORS = [
     # <img class="_swatch-img_..." alt="Gatsby Green" title="Gatsby Green">
     # Color name lives in the `alt` (and `title`) attribute of the swatch image.
     "img[class*='swatch-img']",
+    "img[class*='swatch_img']",
     "[data-test-color-swatch] img",
     "[class*='_swatch_'] img",
+    "[class*='swatch'] img[alt]",
+    # Button wrappers — AE sometimes puts the color name on the parent button
+    "button[class*='swatch'][aria-label]",
+    "button[class*='color'][aria-label]",
+    "[class*='swatch-container'] button[aria-label]",
+    "[data-qa-color-swatch]",
+    "[data-qa-color-swatch] img",
     # Generic fallbacks
     "[class*='ColorSwatch'] [aria-label]",
     "[class*='color-swatch'] [aria-label]",
@@ -145,16 +154,42 @@ PRODUCT_GRID_WAIT_SELECTORS = [
 # AE uses brand color names like "Twilight", "Stormy", "Cognac" — these are
 # listed up-front so they match before generic fallbacks.
 COLOR_KEYWORDS: list[tuple[str, str]] = [
+    # AE brand-specific color names (checked before generics)
     ("twilight", "blue"),
     ("stormy", "gray"),
-    ("slate", "gray"),
-    ("bone", "white"),
-    ("eggshell", "white"),
-    ("oatmeal", "beige"),
-    ("cognac", "brown"),
-    ("navy", "navy"),
+    ("onyx", "black"),
+    ("wisteria", "purple"),
+    ("currant", "red"),
+    ("marigold", "beige"),
+    ("dusty jade", "green"),
+    ("dark rinse", "blue"),
+    ("medium rinse", "blue"),
+    ("light rinse", "blue"),
+    ("rinse", "blue"),
+    ("dark wash", "blue"),
+    ("medium wash", "blue"),
+    ("light wash", "blue"),
+    ("acid wash", "blue"),
+    ("faded black", "black"),
+    ("true black", "black"),
+    ("vintage black", "black"),
     ("washed black", "black"),
     ("rinse black", "black"),
+    ("midnight", "navy"),
+    ("chambray", "blue"),
+    ("heritage", "beige"),
+    ("clay", "beige"),
+    ("wheat", "beige"),
+    ("parchment", "white"),
+    ("birch", "white"),
+    ("bone", "white"),
+    ("eggshell", "white"),
+    ("chalk", "white"),
+    ("oatmeal", "beige"),
+    ("cognac", "brown"),
+    ("slate", "gray"),
+    # Standard generics
+    ("navy", "navy"),
     ("black", "black"),
     ("off white", "white"),
     ("cloud white", "white"),
@@ -164,15 +199,20 @@ COLOR_KEYWORDS: list[tuple[str, str]] = [
     ("burgundy", "red"),
     ("maroon", "red"),
     ("wine", "red"),
+    ("coral", "pink"),
+    ("rust", "red"),
+    ("terracotta", "red"),
     ("red", "red"),
     ("sage", "green"),
     ("olive", "green"),
     ("khaki green", "green"),
     ("forest", "green"),
+    ("moss", "green"),
     ("green", "green"),
     ("sky blue", "blue"),
     ("cobalt", "blue"),
     ("indigo", "blue"),
+    ("teal", "blue"),
     ("blue", "blue"),
     ("light beige", "beige"),
     ("dark beige", "beige"),
@@ -181,6 +221,7 @@ COLOR_KEYWORDS: list[tuple[str, str]] = [
     ("camel", "beige"),
     ("sand", "beige"),
     ("taupe", "beige"),
+    ("khaki", "beige"),
     ("mocha", "brown"),
     ("chocolate", "brown"),
     ("espresso", "brown"),
@@ -189,12 +230,16 @@ COLOR_KEYWORDS: list[tuple[str, str]] = [
     ("dusty pink", "pink"),
     ("mauve", "pink"),
     ("rose", "pink"),
+    ("peach", "pink"),
     ("pink", "pink"),
     ("lavender", "purple"),
     ("lilac", "purple"),
+    ("plum", "purple"),
+    ("violet", "purple"),
     ("purple", "purple"),
     ("charcoal", "gray"),
     ("heather gray", "gray"),
+    ("heather grey", "gray"),
     ("light gray", "gray"),
     ("dark gray", "gray"),
     ("grey", "gray"),
@@ -363,32 +408,103 @@ def _extract_swatch_colors(page: "Page") -> list[str]:
     Extract color names from AE swatch image elements.
 
     AE uses <img class="_swatch-img_..." alt="Gatsby Green" title="Gatsby Green">
-    inside each swatch button. The color name lives in the `alt` / `title`
-    attribute of the image, not in aria-label.
+    inside each swatch button. The color name can be in the `alt` / `title`
+    attribute of the image, or in the `aria-label` of the wrapping button.
+    We try all variants so that selector drift on one path still finds the other.
     """
+    all_labels: list[str] = []
+    seen: set[str] = set()
+
     for selector in COLOR_SWATCH_SELECTORS:
         try:
             elements = page.query_selector_all(selector)
             if not elements:
                 continue
-            labels: list[str] = []
             for el in elements:
-                # AE-specific: color name is in `alt` or `title` on the swatch img
                 label = (
                     el.get_attribute("alt")
-                    or el.get_attribute("title")
                     or el.get_attribute("aria-label")
+                    or el.get_attribute("title")
                     or el.get_attribute("data-color")
                     or el.get_attribute("data-color-name")
                     or ""
-                )
-                if label.strip():
-                    labels.append(label.strip())
-            if labels:
-                return labels
+                ).strip()
+                if label and label not in seen:
+                    seen.add(label)
+                    all_labels.append(label)
         except Exception:
             continue
-    return []
+
+    return all_labels
+
+
+# --------------------------------------------------------------------------- #
+# API / page-data color extraction                                              #
+# --------------------------------------------------------------------------- #
+
+# Field names (lowercased) whose string values are likely color names.
+_COLOR_FIELD_NAMES: frozenset[str] = frozenset([
+    "colorname", "color_name", "colordisplayname", "color_display_name",
+    "swatchname", "swatch_name", "swatchlabel", "swatch_label",
+    "colorlabel", "color_label", "colortitle", "color_title",
+    "displayname", "display_name", "label",
+])
+
+# Parent-key names that contain arrays of color/swatch objects.
+_COLOR_ARRAY_FIELD_NAMES: frozenset[str] = frozenset([
+    "colors", "colour", "colours", "swatches", "coloroptions",
+    "color_options", "colorfacets", "color_facets", "colorways",
+])
+
+
+def _walk_json_for_colors(data: object, found: list[str], depth: int = 0) -> None:
+    """
+    Recursively walk a JSON structure looking for color name strings.
+
+    Targets fields whose keys suggest they hold a color name (e.g.
+    "colorName", "swatchName", "label" inside a swatches array).
+    Avoids going deeper than 10 levels to stay fast on large payloads.
+    """
+    if depth > 10:
+        return
+    if isinstance(data, dict):
+        for key, value in data.items():
+            key_lower = key.lower()
+            if key_lower in _COLOR_FIELD_NAMES and isinstance(value, str) and value.strip():
+                found.append(value.strip())
+            elif key_lower in _COLOR_ARRAY_FIELD_NAMES and isinstance(value, list):
+                for item in value:
+                    if isinstance(item, str) and item.strip():
+                        found.append(item.strip())
+                    elif isinstance(item, dict):
+                        _walk_json_for_colors(item, found, depth + 1)
+            elif isinstance(value, (dict, list)):
+                _walk_json_for_colors(value, found, depth + 1)
+    elif isinstance(data, list):
+        for item in data:
+            if isinstance(item, (dict, list)):
+                _walk_json_for_colors(item, found, depth + 1)
+
+
+def _extract_colors_from_next_data(page: "Page") -> list[str]:
+    """
+    Try to extract color names from the Next.js __NEXT_DATA__ JSON block
+    embedded in the page HTML. This is server-side rendered and available
+    immediately after domcontentloaded, before any XHR fires.
+    """
+    try:
+        script_text: str = page.evaluate(
+            "() => { const el = document.getElementById('__NEXT_DATA__'); "
+            "return el ? el.textContent : ''; }"
+        )
+        if not script_text:
+            return []
+        data = json.loads(script_text)
+        colors: list[str] = []
+        _walk_json_for_colors(data, colors)
+        return colors
+    except Exception:
+        return []
 
 
 # --------------------------------------------------------------------------- #
@@ -401,7 +517,15 @@ def scrape_american_eagle(
 ) -> tuple[list[str], list[str]]:
     """
     Scrape all American Eagle pages.
-    Returns (product_titles, swatch_color_labels).
+    Returns (product_titles, color_labels).
+
+    Colors come from three sources tried in priority order:
+      1. Network response interception — AE's Next.js app fires XHR/fetch
+         calls to load products; we walk those JSON payloads for color fields.
+      2. __NEXT_DATA__ extraction — the server-rendered JSON block embedded
+         in the HTML often contains the first page of products with colors.
+      3. DOM swatch elements — kept as a last-resort fallback in case the
+         above two find nothing on a given page.
     """
     try:
         from playwright.sync_api import sync_playwright
@@ -412,6 +536,25 @@ def scrape_american_eagle(
 
     all_titles: list[str] = []
     all_swatch_colors: list[str] = []
+    api_colors: list[str] = []
+
+    def _handle_response(response: object) -> None:
+        """Intercept AE XHR/fetch responses and walk JSON for color names."""
+        try:
+            url: str = response.url  # type: ignore[attr-defined]
+            if "ae.com" not in url:
+                return
+            content_type: str = response.headers.get(  # type: ignore[attr-defined]
+                "content-type", ""
+            )
+            if "json" not in content_type:
+                return
+            if response.status != 200:  # type: ignore[attr-defined]
+                return
+            data = response.json()  # type: ignore[attr-defined]
+            _walk_json_for_colors(data, api_colors)
+        except Exception:
+            pass
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
@@ -437,13 +580,13 @@ def scrape_american_eagle(
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
             },
         )
-        # Mask the webdriver flag that common bot detectors check
         context.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
             "window.chrome = {runtime: {}};"
         )
 
         page = context.new_page()
+        page.on("response", _handle_response)
 
         for page_info in AMERICAN_EAGLE_PAGES:
             url = page_info["url"]
@@ -459,13 +602,22 @@ def scrape_american_eagle(
                     page_title = page.title()
                     print(f"    WARNING: product grid not found (page title: '{page_title}')")
 
+                # Pull colors from __NEXT_DATA__ (server-rendered, no XHR needed)
+                next_data_colors = _extract_colors_from_next_data(page)
+                api_colors.extend(next_data_colors)
+
                 time.sleep(1.5)
                 _scroll_to_bottom(page)
 
                 titles = _extract_product_names(page)
                 swatches = _extract_swatch_colors(page)
 
-                print(f"    {len(titles)} product titles, {len(swatches)} swatch colors")
+                print(
+                    f"    {len(titles)} product titles, "
+                    f"{len(swatches)} DOM swatches, "
+                    f"{len(next_data_colors)} __NEXT_DATA__ colors, "
+                    f"{len(api_colors)} API colors so far"
+                )
                 all_titles.extend(titles)
                 all_swatch_colors.extend(swatches)
 
@@ -476,7 +628,14 @@ def scrape_american_eagle(
 
         browser.close()
 
-    return all_titles, all_swatch_colors
+    # Priority: API/next-data colors → DOM swatches
+    final_colors = api_colors if api_colors else all_swatch_colors
+    if api_colors:
+        print(f"  Using {len(api_colors)} API/page-data color names")
+    else:
+        print(f"  API interception yielded nothing — falling back to {len(all_swatch_colors)} DOM swatch labels")
+
+    return all_titles, final_colors
 
 
 # --------------------------------------------------------------------------- #
@@ -490,8 +649,8 @@ def count_attribute_frequencies(
     """
     Count occurrences of each feature value across all products.
 
-    Color is sourced from swatch_colors first (more reliable), then title fallback.
-    Category and material come from title keyword matching.
+    Color comes from API/page-data interception (swatch_colors), supplemented
+    by title keyword extraction. Category and material come from title keywords.
     """
     counts: dict[str, dict[str, int]] = {ft: {} for ft in FEATURE_TYPES}
 
@@ -501,7 +660,7 @@ def count_attribute_frequencies(
         if color:
             counts["color"][color] = counts["color"].get(color, 0) + 1
 
-    # Category, material, and fallback color from product titles
+    # Category, material, and supplementary color from product titles
     for title in titles:
         category = extract_category(title)
         if category:
@@ -511,11 +670,13 @@ def count_attribute_frequencies(
         if material:
             counts["material"][material] = counts["material"].get(material, 0) + 1
 
-        # Color from title only if swatch extraction was empty
-        if not swatch_colors:
-            color = extract_color(title)
-            if color:
-                counts["color"][color] = counts["color"].get(color, 0) + 1
+        # Color from title: always extracted as a supplement because AE swatch
+        # alt attributes use brand-specific names (e.g. "Twilight", "Onyx") that
+        # may not match a keyword, while titles sometimes include plain color
+        # words ("AE Black Denim Jacket", "Blue Plaid Flannel Shirt").
+        color = extract_color(title)
+        if color:
+            counts["color"][color] = counts["color"].get(color, 0) + 1
 
     return counts
 
@@ -586,10 +747,10 @@ KNOWN_FEATURE_VALUES: dict[str, list[str]] = {
 def parse_args() -> argparse.Namespace:
     default_output = (
         Path(__file__).resolve().parents[1]
-        / "training" / "synthetic_data" / "trend_signals.csv"
+        / "training" / "synthetic_data" / "trend_signals_american_eagle.csv"
     )
     parser = argparse.ArgumentParser(
-        description="Scrape American Eagle new arrivals and write trend_signals.csv."
+        description="Scrape American Eagle new arrivals and write trend_signals_american_eagle.csv."
     )
     parser.add_argument("--output-path", default=str(default_output))
     parser.add_argument(
@@ -619,6 +780,7 @@ def main() -> None:
     print(
         f"American Eagle retail scraper\n"
         f"  pages: {len(AMERICAN_EAGLE_PAGES)}  headless: {args.headless}\n"
+        f"  color source: swatch alt/aria-label + title keyword supplement\n"
         f"  output: {output_path}"
     )
 
