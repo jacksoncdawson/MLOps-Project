@@ -1,0 +1,43 @@
+artifact_path: /Users/vivianjohnson/Desktop/MLOps-Project/trndly/mlruns/1/models/m-0495e78a1e654f7ab1c6fffa8d5da91f/artifacts
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.pkl
+    predict_fn: predict
+    python_version: 3.13.5
+  sklearn:
+    code: null
+    pickled_model: model.pkl
+    serialization_format: cloudpickle
+    sklearn_version: 1.7.2
+    skops_trusted_types: null
+is_signature_from_type_hint: false
+mlflow_version: 3.10.1
+model_id: m-0495e78a1e654f7ab1c6fffa8d5da91f
+model_size_bytes: 17247152
+model_uuid: m-0495e78a1e654f7ab1c6fffa8d5da91f
+prompts: null
+run_id: 5508cfd351f345cdbf405a7f99bfcabb
+saved_input_example_info:
+  artifact_path: input_example.json
+  pandas_orient: split
+  serving_input_path: serving_input_example.json
+  type: dataframe
+signature:
+  inputs: '[{"type": "double", "name": "color_current", "required": true}, {"type":
+    "double", "name": "category_current", "required": true}, {"type": "double", "name":
+    "material_current", "required": true}, {"type": "double", "name": "avg_current",
+    "required": true}, {"type": "double", "name": "season_plus_0", "required": true},
+    {"type": "double", "name": "season_plus_1", "required": true}, {"type": "double",
+    "name": "season_plus_2", "required": true}, {"type": "double", "name": "season_plus_3",
+    "required": true}, {"type": "double", "name": "season_plus_6", "required": true},
+    {"type": "double", "name": "months_since_peak", "required": true}, {"type": "double",
+    "name": "months_until_peak", "required": true}, {"type": "double", "name": "sin_month",
+    "required": true}, {"type": "double", "name": "cos_month", "required": true}]'
+  outputs: '[{"type": "string", "required": true}]'
+  params: null
+type_hint_from_example: false
+utc_time_created: '2026-04-24 03:45:28.316840'

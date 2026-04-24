@@ -1,11 +1,13 @@
 """
-Combine per-retailer trend signal files into a single trend_signals.csv.
+Combine per-source trend signal files into a single trend_signals.csv.
 
-Each retail scraper (hollister_scraper.py, pacsun_scraper.py, ...) writes its
-own output file named `trend_signals_<retailer>.csv` in the synthetic_data
-directory. This script reads every such file, merges the per-(feature_type,
-feature_value) scores across retailers, and writes the canonical
-`trend_signals.csv` that the training / serving pipeline actually consumes.
+Each data source (google_trends_collector.py, hollister_scraper.py,
+gap_scraper.py, ...) writes its own output file named
+`trend_signals_<source>.csv` in the data/trend_signals/ subfolder. This
+script reads every such file, merges the per-(feature_type, feature_value)
+scores across sources, and writes the canonical `trend_signals.csv` (in
+the parent data/ folder) that the training / serving pipeline actually
+consumes.
 
 MERGE STRATEGY
 ---------------
@@ -57,14 +59,11 @@ from pipelines.training.feature_contract import (  # noqa: E402
     TREND_SIGNAL_COLUMNS,
     validate_trend_signals_frame,
 )
-
-DEFAULT_SIGNALS_DIR = (
-    Path(__file__).resolve().parents[1] / "training" / "synthetic_data"
+from pipelines.training.paths import (  # noqa: E402
+    TREND_SIGNALS_CSV as DEFAULT_OUTPUT_PATH,
+    TREND_SIGNALS_DIR as DEFAULT_SIGNALS_DIR,
+    TREND_SIGNALS_GLOB as RETAILER_FILE_GLOB,
 )
-DEFAULT_OUTPUT_PATH = DEFAULT_SIGNALS_DIR / "trend_signals.csv"
-
-# Glob used when the user didn't pass --input explicitly.
-RETAILER_FILE_GLOB = "trend_signals_*.csv"
 
 
 # --------------------------------------------------------------------------- #
@@ -186,9 +185,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input", action="append", default=None,
         help=(
-            "Path to a per-retailer trend signals CSV. Repeat for multiple "
-            "retailers. If omitted, every trend_signals_*.csv in the default "
-            "synthetic_data directory is auto-discovered."
+            "Path to a per-source trend signals CSV. Repeat for multiple "
+            "sources. If omitted, every trend_signals_*.csv in the default "
+            "data/trend_signals/ directory is auto-discovered."
         ),
     )
     parser.add_argument(
@@ -202,7 +201,9 @@ def parse_args() -> argparse.Namespace:
         "--signals-dir", default=str(DEFAULT_SIGNALS_DIR),
         help=(
             "Directory to scan for trend_signals_*.csv when --input is not "
-            f"given (default: {DEFAULT_SIGNALS_DIR})."
+            f"given (default: {DEFAULT_SIGNALS_DIR}). Per-source files live "
+            "in data/trend_signals/; the combined output is written one level "
+            "up in data/."
         ),
     )
     parser.add_argument(

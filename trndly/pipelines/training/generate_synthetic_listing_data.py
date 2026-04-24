@@ -22,6 +22,7 @@ from pipelines.training.feature_contract import (  # noqa: E402
     build_trend_lookup,
     item_to_feature_row,
 )
+from pipelines.training.paths import DATA_DIR  # noqa: E402
 
 FEATURE_VALUES = {
     "color": [
@@ -69,7 +70,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output-dir",
-        default=str(Path(__file__).resolve().parent / "synthetic_data"),
+        default=str(DATA_DIR),
         help="Directory where synthetic artifacts are written.",
     )
     parser.add_argument(

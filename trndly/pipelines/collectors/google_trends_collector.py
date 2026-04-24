@@ -3,40 +3,50 @@ Google Trends collector for trndly trend signals.
 
 Fetches the last 7 days of daily search-interest data for every color,
 category, and material in the feature contract and writes the result as
-trend_signals.csv with a single `current` column.
+`trend_signals_google.csv` — one source among several that feed the
+canonical combined file.
 
-This is the only column the model needs as input. The model's job is to
-predict the best listing timeframe from what is trending RIGHT NOW.
+This is one of the "current signal" sources the pipeline uses:
+
+    trend_signals_google.csv      ← this script
+    trend_signals_hollister.csv   ← hollister_scraper.py
+    trend_signals_gap.csv         ← gap_scraper.py
+
+`combine_trend_signals.py` then auto-discovers every `trend_signals_*.csv`
+in the signals directory and produces the canonical `trend_signals.csv`
+(weighted mean across retailers that actually saw each value).
 
 The output CSV is validated against feature_contract.validate_trend_signals_frame
-before being written, so it is a drop-in replacement for the synthetic
-trend_signals.csv consumed by the training pipeline and scheduleServer.
+before being written so it's a drop-in retailer source for the combine step.
 
 Usage:
   python google_trends_collector.py
-  python google_trends_collector.py --output-path path/to/trend_signals.csv
+  python google_trends_collector.py --output-path path/to/trend_signals_google.csv
   python google_trends_collector.py --geo US --sleep 2.5
+
+Pipeline:
+  1. python google_trends_collector.py
+  2. python hollister_scraper.py
+  3. python gap_scraper.py
+  4. python combine_trend_signals.py    # writes canonical trend_signals.csv
 """
 
 from __future__ import annotations
-
 import argparse
 import sys
 import time
 from pathlib import Path
-
 import numpy as np
 import pandas as pd
 from pytrends.request import TrendReq
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
-
 from pipelines.training.feature_contract import (  # noqa: E402
     DEFAULT_MISSING_SCORE,
     validate_trend_signals_frame,
 )
+from pipelines.training.paths import TREND_SIGNALS_GOOGLE_CSV  # noqa: E402
 
 # --------------------------------------------------------------------------- #
 # Search query strings                                                          #
@@ -100,21 +110,22 @@ RETRY_BASE_SLEEP_SECS = 60  # doubles on each retry (60 → 120 → 240)
 # --------------------------------------------------------------------------- #
 
 def parse_args() -> argparse.Namespace:
-    default_output = (
-        Path(__file__).resolve().parents[1]
-        / "training"
-        / "synthetic_data"
-        / "trend_signals.csv"
-    )
+    default_output = TREND_SIGNALS_GOOGLE_CSV
     parser = argparse.ArgumentParser(
-        description="Collect Google Trends data and write trend_signals.csv."
+        description=(
+            "Collect Google Trends data and write trend_signals_google.csv, "
+            "one of the per-source files that combine_trend_signals.py merges "
+            "into the canonical trend_signals.csv."
+        )
     )
     parser.add_argument(
         "--output-path",
         default=str(default_output),
         help=(
-            "Destination CSV path. Defaults to the synthetic_data directory so "
-            "it directly replaces the synthetic trend signals used by training."
+            "Destination CSV path. Defaults to "
+            "<data>/trend_signals/trend_signals_google.csv so it sits alongside "
+            "trend_signals_hollister.csv and trend_signals_gap.csv and is "
+            "auto-picked-up by combine_trend_signals.py."
         ),
     )
     parser.add_argument(

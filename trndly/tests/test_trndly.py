@@ -36,10 +36,11 @@ from pipelines.training.feature_contract import (  # noqa: E402
     prepare_training_frame,
     validate_trend_signals_frame,
 )
-
-SYNTHETIC_DIR = PROJECT_ROOT / "pipelines" / "training" / "synthetic_data"
-TREND_SIGNALS_CSV = SYNTHETIC_DIR / "trend_signals.csv"
-TRAIN_CSV = SYNTHETIC_DIR / "train.csv"
+from pipelines.training.paths import (  # noqa: E402
+    DATA_DIR,
+    TRAIN_CSV,
+    TREND_SIGNALS_CSV,
+)
 
 
 # ---------------------------------------------------------------------------

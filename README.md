@@ -15,7 +15,8 @@ Current scope in this repo:
 - `pipelines/training/generate_synthetic_listing_data.py` - synthetic dataset generator
 - `pipelines/training/feature_contract.py` - shared featurization contract for training + serving
 - `pipelines/training/train_listing_timeline.py` - classifier training + MLflow registration/alias assignment
-- `pipelines/training/synthetic_data/` - generated local artifacts
+- `pipelines/training/data/` - generated local artifacts (train/val/test CSVs, seasonality table, combined trend signals)
+- `pipelines/training/data/trend_signals/` - per-source trend signal CSVs from each collector/scraper, merged by `combine_trend_signals.py`
 - `scripts/run_mlflow_experiment.sh` - one-command experiment run
 - `scripts/run_api.sh` - one-command API start
 - `scripts/kill_api.sh` - stop API processes on configured port
@@ -41,7 +42,7 @@ Create `backend/services/.env` with values like:
 MLFLOW_TRACKING_URI=http://<private-mlflow-host>:5000
 MLFLOW_MODEL_URI=models:/listing_timeline_experiments@candidate
 MLFLOW_EXPERIMENT_NAME=checkpoint_fastapi
-TREND_SIGNALS_PATH=../../pipelines/training/synthetic_data/trend_signals.csv
+TREND_SIGNALS_PATH=../../pipelines/training/data/trend_signals.csv
 MLFLOW_MODEL_ARTIFACT_PATH=model
 ```
 

@@ -1,4 +1,3 @@
-fastapi
 fastapi[standard]
 mlflow
 numpy
@@ -8,3 +7,5 @@ scikit-learn
 gcsfs
 uvicorn
 pytest
+pytrends
+playwright

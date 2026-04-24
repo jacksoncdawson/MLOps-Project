@@ -35,7 +35,7 @@ SETUP (one-time)
 
 Output:
   By default writes to
-    trndly/pipelines/training/synthetic_data/trend_signals_gap.csv
+    trndly/pipelines/training/data/trend_signals/trend_signals_gap.csv
   (so it sits alongside trend_signals_hollister.csv, trend_signals_pacsun.csv,
    etc.). Run combine_trend_signals.py afterwards to merge all retailer
    files into the canonical trend_signals.csv.
@@ -65,6 +65,7 @@ from pipelines.training.feature_contract import (  # noqa: E402
     FEATURE_TYPES,
     validate_trend_signals_frame,
 )
+from pipelines.training.paths import TREND_SIGNALS_GAP_CSV  # noqa: E402
 
 # --------------------------------------------------------------------------- #
 # Target pages                                                                  #
@@ -619,10 +620,7 @@ def parse_args() -> argparse.Namespace:
     # Each scraper writes to its own per-retailer file so multiple retailers
     # can be run independently, updated on their own schedule, and then
     # combined later by combine_trend_signals.py.
-    default_output = (
-        Path(__file__).resolve().parents[1]
-        / "training" / "synthetic_data" / "trend_signals_gap.csv"
-    )
+    default_output = TREND_SIGNALS_GAP_CSV
     parser = argparse.ArgumentParser(
         description="Scrape Gap new arrivals and write trend_signals_gap.csv."
     )

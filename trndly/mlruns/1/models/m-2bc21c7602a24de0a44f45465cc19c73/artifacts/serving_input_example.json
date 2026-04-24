@@ -1,0 +1,36 @@
+{
+  "dataframe_split": {
+    "columns": [
+      "color_current",
+      "category_current",
+      "material_current",
+      "avg_current",
+      "season_plus_0",
+      "season_plus_1",
+      "season_plus_2",
+      "season_plus_3",
+      "season_plus_6",
+      "months_since_peak",
+      "months_until_peak",
+      "sin_month",
+      "cos_month"
+    ],
+    "data": [
+      [
+        0.568852,
+        0.222715,
+        0.33887,
+        0.376812,
+        0.212893,
+        0.232541,
+        0.302669,
+        0.652061,
+        1.0,
+        6.0,
+        6.0,
+        0.5,
+        0.866025
+      ]
+    ]
+  }
+}

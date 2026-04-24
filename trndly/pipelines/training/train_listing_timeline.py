@@ -24,10 +24,10 @@ from pipelines.training.feature_contract import (  # noqa: E402
     TIMEFRAMES,
     prepare_training_frame,
 )
+from pipelines.training.paths import TEST_CSV, TRAIN_CSV, VAL_CSV  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
-    synthetic_dir = Path(__file__).resolve().parent / "synthetic_data"
     parser = argparse.ArgumentParser(
         description=(
             "Train and register a listing timeline classifier using local synthetic "
@@ -38,17 +38,17 @@ def parse_args() -> argparse.Namespace:
         "--train-data-uri",
         "--data-uri",
         dest="train_data_uri",
-        default=os.getenv("TRAIN_DATA_URI", str(synthetic_dir / "train.csv")),
+        default=os.getenv("TRAIN_DATA_URI", str(TRAIN_CSV)),
         help="Train split CSV location (local path or gs:// URI).",
     )
     parser.add_argument(
         "--val-data-uri",
-        default=os.getenv("VAL_DATA_URI", str(synthetic_dir / "val.csv")),
+        default=os.getenv("VAL_DATA_URI", str(VAL_CSV)),
         help="Validation split CSV location (local path or gs:// URI).",
     )
     parser.add_argument(
         "--test-data-uri",
-        default=os.getenv("TEST_DATA_URI", str(synthetic_dir / "test.csv")),
+        default=os.getenv("TEST_DATA_URI", str(TEST_CSV)),
         help="Test split CSV location (local path or gs:// URI).",
     )
     parser.add_argument(

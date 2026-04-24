@@ -61,6 +61,7 @@ from pipelines.training.feature_contract import (  # noqa: E402
     FEATURE_TYPES,
     validate_trend_signals_frame,
 )
+from pipelines.training.paths import TREND_SIGNALS_HOLLISTER_CSV  # noqa: E402
 
 # --------------------------------------------------------------------------- #
 # Target pages                                                                  #
@@ -767,10 +768,7 @@ def parse_args() -> argparse.Namespace:
     # Each scraper writes to its own per-retailer file so multiple retailers
     # can be run independently, updated on their own schedule, and then
     # combined later by combine_trend_signals.py.
-    default_output = (
-        Path(__file__).resolve().parents[1]
-        / "training" / "synthetic_data" / "trend_signals_hollister.csv"
-    )
+    default_output = TREND_SIGNALS_HOLLISTER_CSV
     parser = argparse.ArgumentParser(
         description="Scrape Hollister new arrivals and write trend_signals_hollister.csv."
     )
