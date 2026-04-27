@@ -242,7 +242,7 @@ trndly/
 │   └── Dockerfile
 ├── pipelines/
 │   ├── collectors/             # One module per data source
-│   │   ├── retail_scraper.py
+│   │   ├── hollister_scraper.py
 │   │   ├── pinterest_collector.py
 │   │   ├── reddit_collector.py
 │   │   └── google_trends_collector.py

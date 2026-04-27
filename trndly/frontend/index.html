@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>trndly — listing timeframe predictor</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #171a21;
+      --border: #262a33;
+      --text: #e7e9ee;
+      --muted: #8b93a3;
+      --accent: #6ea8ff;
+      --accent-hover: #87b8ff;
+      --success: #5ccf8a;
+      --error: #ff7a7a;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    main { max-width: 720px; margin: 4rem auto; padding: 0 1.25rem; }
+    h1 { margin: 0 0 .25rem; font-size: 1.75rem; letter-spacing: -0.01em; }
+    p.lead { margin: 0 0 2rem; color: var(--muted); }
+    .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+    label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: .35rem; }
+    input, select {
+      width: 100%; padding: .6rem .75rem; border-radius: 8px;
+      background: #0c0e13; color: var(--text);
+      border: 1px solid var(--border); font: inherit;
+    }
+    input:focus, select:focus { outline: none; border-color: var(--accent); }
+    .row { margin-bottom: 1rem; }
+    .actions { display: flex; gap: .75rem; align-items: center; margin-top: 1.25rem; }
+    button {
+      background: var(--accent); color: #0b0d12; font-weight: 600;
+      border: none; padding: .7rem 1.25rem; border-radius: 8px;
+      cursor: pointer; font-size: 0.95rem;
+    }
+    button:hover { background: var(--accent-hover); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .hint { font-size: 0.8rem; color: var(--muted); }
+    .result { margin-top: 2rem; }
+    .timeframe-card {
+      padding: 1.5rem; border-radius: 12px; background: #0c0e13;
+      border: 1px solid var(--border); text-align: center;
+    }
+    .timeframe-label { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+    .timeframe-value {
+      font-size: 2rem; font-weight: 700; color: var(--success);
+      margin: .4rem 0 .1rem; font-variant-numeric: tabular-nums;
+    }
+    .timeframe-sub { font-size: 0.85rem; color: var(--muted); }
+    .scores { margin-top: 1.25rem; }
+    .scores table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    .scores th, .scores td { text-align: left; padding: .5rem .5rem; border-bottom: 1px solid var(--border); }
+    .scores th { font-weight: 500; color: var(--muted); }
+    .scores td.num { font-variant-numeric: tabular-nums; text-align: right; }
+    .error { margin-top: 1.25rem; padding: 1rem; border-radius: 8px; background: rgba(255,122,122,.1); border: 1px solid var(--error); color: var(--error); font-size: 0.9rem; }
+    .footer { margin-top: 2rem; font-size: 0.8rem; color: var(--muted); text-align: center; }
+    .footer a { color: var(--muted); }
+    .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: .4rem; vertical-align: middle; }
+    .status-ok { background: var(--success); }
+    .status-bad { background: var(--error); }
+    code { font-family: ui-monospace, Menlo, monospace; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>trndly</h1>
+    <p class="lead">Predict the best timeframe to list a clothing item, based on current trend signals and historical seasonality.</p>
+
+    <section class="panel">
+      <form id="predict-form">
+        <div class="row">
+          <label for="item_name">Item name</label>
+          <input type="text" id="item_name" name="item_name" placeholder="e.g. blue linen pants" required maxlength="120" />
+        </div>
+
+        <div class="grid">
+          <div class="row">
+            <label for="color">Color</label>
+            <select id="color" name="color" required></select>
+          </div>
+          <div class="row">
+            <label for="category">Category</label>
+            <select id="category" name="category" required></select>
+          </div>
+        </div>
+
+        <div class="grid">
+          <div class="row">
+            <label for="material">Material</label>
+            <select id="material" name="material" required></select>
+          </div>
+          <div class="row">
+            <label for="reference_month">As-of month <span class="hint">(blank = today)</span></label>
+            <select id="reference_month" name="reference_month">
+              <option value="">today</option>
+              <option value="1">January</option>
+              <option value="2">February</option>
+              <option value="3">March</option>
+              <option value="4">April</option>
+              <option value="5">May</option>
+              <option value="6">June</option>
+              <option value="7">July</option>
+              <option value="8">August</option>
+              <option value="9">September</option>
+              <option value="10">October</option>
+              <option value="11">November</option>
+              <option value="12">December</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button type="submit" id="submit-btn">Predict timeframe</button>
+          <span class="hint" id="health-indicator">
+            <span class="status-dot status-bad"></span>checking…
+          </span>
+        </div>
+      </form>
+    </section>
+
+    <section class="result" id="result" hidden></section>
+    <div class="footer">
+      API: <a href="/docs" target="_blank">/docs</a> · <a href="/health" target="_blank">/health</a>
+    </div>
+  </main>
+
+  <script>
+    const MONTH_NAMES = ["", "January","February","March","April","May","June","July","August","September","October","November","December"];
+    const TIMEFRAME_COPY = {
+      current: "List right now",
+      next_week: "List within a week",
+      next_month: "List within a month",
+      three_months: "List in ~3 months",
+      six_months: "List in ~6 months",
+    };
+
+    const $ = (id) => document.getElementById(id);
+
+    function populate(selectId, values, placeholder) {
+      const sel = $(selectId);
+      sel.innerHTML = "";
+      const head = document.createElement("option");
+      head.value = ""; head.textContent = placeholder; head.disabled = true; head.selected = true;
+      sel.appendChild(head);
+      for (const v of values) {
+        const opt = document.createElement("option");
+        opt.value = v; opt.textContent = v;
+        sel.appendChild(opt);
+      }
+    }
+
+    async function loadOptions() {
+      const res = await fetch("/options");
+      if (!res.ok) throw new Error(`/options returned ${res.status}`);
+      const data = await res.json();
+      populate("color", data.colors, "select color");
+      populate("category", data.categories, "select category");
+      populate("material", data.materials, "select material");
+    }
+
+    async function loadHealth() {
+      const ind = $("health-indicator");
+      try {
+        const res = await fetch("/health");
+        const data = await res.json();
+        const ok = data.status === "healthy";
+        ind.innerHTML = `<span class="status-dot ${ok ? "status-ok" : "status-bad"}"></span>${data.status}`;
+        if (!ok) {
+          const issues = [];
+          if (!data.model_loaded) issues.push("model");
+          if (!data.trend_data_loaded) issues.push("trend signals");
+          if (!data.seasonality_table_loaded) issues.push("seasonality table");
+          ind.title = "Not loaded: " + issues.join(", ");
+        }
+      } catch (e) {
+        ind.innerHTML = `<span class="status-dot status-bad"></span>server unreachable`;
+      }
+    }
+
+    function renderResult(data) {
+      const el = $("result");
+      const copy = TIMEFRAME_COPY[data.best_timeframe] || data.best_timeframe;
+      const scoresRows = Object.entries(data.feature_scores)
+        .map(([k, v]) => `<tr><td>${k}</td><td class="num">${Number(v).toFixed(3)}</td></tr>`).join("");
+
+      el.innerHTML = `
+        <div class="timeframe-card">
+          <div class="timeframe-label">Recommended timeframe</div>
+          <div class="timeframe-value">${copy}</div>
+          <div class="timeframe-sub">
+            as of ${MONTH_NAMES[data.reference_month]} · model version ${data.model_uri || "?"}
+          </div>
+        </div>
+        <div class="scores panel" style="margin-top:1rem;">
+          <div style="color:var(--muted); font-size:.85rem; margin-bottom:.5rem;">Current trend signal scores</div>
+          <table><thead><tr><th>feature</th><th style="text-align:right;">score</th></tr></thead>
+          <tbody>${scoresRows}</tbody></table>
+        </div>`;
+      el.hidden = false;
+    }
+
+    function renderError(message) {
+      const el = $("result");
+      el.innerHTML = `<div class="error">${message}</div>`;
+      el.hidden = false;
+    }
+
+    $("predict-form").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const btn = $("submit-btn");
+      btn.disabled = true; btn.textContent = "Predicting…";
+      const payload = {
+        item_name: $("item_name").value.trim(),
+        color: $("color").value,
+        category: $("category").value,
+        material: $("material").value,
+      };
+      const refMonth = $("reference_month").value;
+      if (refMonth) payload.reference_month = Number(refMonth);
+
+      try {
+        const res = await fetch("/predict", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          renderError(`Error (${res.status}): ${data.detail || "unknown error"}`);
+        } else {
+          renderResult(data);
+        }
+      } catch (e) {
+        renderError(`Network error: ${e.message}`);
+      } finally {
+        btn.disabled = false; btn.textContent = "Predict timeframe";
+      }
+    });
+
+    loadOptions().catch((e) => renderError(`Failed to load options: ${e.message}`));
+    loadHealth();
+    setInterval(loadHealth, 15000);
+  </script>
+</body>
+</html>
