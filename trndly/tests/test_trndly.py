@@ -85,7 +85,7 @@ def sample_item():
 # 1. Model inference
 # ---------------------------------------------------------------------------
 def test_model_can_make_inference(tiny_model, trend_lookup, sample_item):
-    """Test 1: the trend prediction model produces a prediction without error."""
+    """Test 1: the listing timeline model produces a prediction without error."""
     frame = build_feature_frame([sample_item], trend_lookup)
     predictions = tiny_model.predict(frame)
 

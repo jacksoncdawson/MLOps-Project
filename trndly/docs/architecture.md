@@ -152,7 +152,7 @@ Triggered by Pub/Sub messages from the data collection pipeline. Cloud Run Jobs 
 
 | Model            | Purpose                                                                    | Approach                                                                                   |
 | ---------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Trend Forecaster | Predict trend strength over time horizons (Trend Radar, Listing Scheduler) | Time-series forecasting — Prophet or a lightweight temporal model                          |
+| Univariate forecaster | Predict per-series share over time horizons (Trend Radar, Listing Scheduler) | Time-series forecasting — Prophet or a lightweight temporal model                          |
 | Item Classifier  | Categorize items by style, color, material, vibe from text/image           | NLP embeddings (sentence-transformers) + optional image features                           |
 | Sourcing Ranker  | Score item categories for buy-low-sell-high potential                      | Ranking model combining current popularity, predicted trajectory, and current market price |
 

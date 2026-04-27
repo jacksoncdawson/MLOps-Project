@@ -1,9 +1,9 @@
 # First 5
 
-1. Making sure the trend prediction model is able to:
+1. Making sure the univariate prediction model is able to:
     - make inference
     - inference is in the expected range
-    - inference trend is not going down with new data
+    - inference quality is not going down with new data
 
 2. Feature Engineering:
     - feature creation pipeline still working

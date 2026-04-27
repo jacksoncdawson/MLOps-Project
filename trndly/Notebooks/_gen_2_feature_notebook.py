@@ -30,13 +30,13 @@ def main() -> None:
 
     cells.append(
         md(
-            r"""# Feature processing — trend + fingerprint training tables
+            r"""# Feature processing — univariate + fingerprint training tables
 
 Build **calendar-strict** training rows from the processed monthly cubes on disk (e.g. written or renamed after `1_aggregate_historical.ipynb`):
 
 | Part | Input | Output |
 |------|--------|--------|
-| **A — Trend** | `processed_univariate.parquet` | `trend_training.parquet` |
+| **A — Univariate** | `processed_univariate.parquet` | `univariate_training.parquet` |
 | **B — Fingerprint** | `processed_fingerprint.parquet` | `fingerprint_training.parquet` |
 
 **Eligibility:** for anchor month `t`, require cube rows on every calendar month in **`t-3` … `t+6`** (10 months: three lags, anchor, six horizons). No reindex / zero-fill.
@@ -64,7 +64,7 @@ pd.set_option("display.width", None)
 DATA_DIR = "../data/processed"
 IN_UNIVARIATE = f"{DATA_DIR}/processed_univariate.parquet"
 IN_FINGERPRINT = f"{DATA_DIR}/processed_fingerprint.parquet"
-OUT_TREND = f"{DATA_DIR}/trend_training.parquet"
+OUT_UNIVARIATE = f"{DATA_DIR}/univariate_training.parquet"
 OUT_FINGERPRINT = f"{DATA_DIR}/fingerprint_training.parquet"
 OUT_META = f"{DATA_DIR}/feature_training_run.json"
 
@@ -188,29 +188,29 @@ uv.head(3)
         )
     )
 
-    cells.append(md("## Part A — Build `trend_training` rows"))
+    cells.append(md("## Part A — Build `univariate_training` rows"))
     cells.append(
         code(
-            r"""trend_raw, trend_stats = build_calendar_strict_rows(
+            r"""uni_raw, uni_stats = build_calendar_strict_rows(
     uv,
     key_cols=["dimension", "level_id"],
     extra_at_t=None,
 )
-print("Part A calendar-strict stats:", trend_stats)
+print("Part A calendar-strict stats:", uni_stats)
 
-trend = trend_raw.copy()
-trend["sample_weight"] = np.sqrt(np.maximum(trend["n_articles"].astype(float), 0.0)).clip(
+univariate = uni_raw.copy()
+univariate["sample_weight"] = np.sqrt(np.maximum(univariate["n_articles"].astype(float), 0.0)).clip(
     upper=SAMPLE_WEIGHT_MAX
 )
-trend = assign_split_group(trend, "anchor_month")
+univariate = assign_split_group(univariate, "anchor_month")
 
-TREND_META = ["anchor_month", "dimension", "level_id", "source", "split_group", "sample_weight", "n_articles"]
-TREND_FEATURE_COLS = ["month_of_year", "share_t"] + [f"share_lag{i}" for i in range(1, LAG_PAST_MONTHS + 1)]
-TREND_TARGET_COLS = [f"y_h{h}" for h in HORIZONS]
-trend = trend[TREND_META + TREND_FEATURE_COLS + TREND_TARGET_COLS]
+UNIVARIATE_META = ["anchor_month", "dimension", "level_id", "source", "split_group", "sample_weight", "n_articles"]
+UNIVARIATE_FEATURE_COLS = ["month_of_year", "share_t"] + [f"share_lag{i}" for i in range(1, LAG_PAST_MONTHS + 1)]
+UNIVARIATE_TARGET_COLS = [f"y_h{h}" for h in HORIZONS]
+univariate = univariate[UNIVARIATE_META + UNIVARIATE_FEATURE_COLS + UNIVARIATE_TARGET_COLS]
 
-print("trend_training shape:", trend.shape)
-print(trend.head(2))
+print("univariate_training shape:", univariate.shape)
+print(univariate.head(2))
 """
         )
     )
@@ -261,7 +261,7 @@ print(fp_train.head(2))
         code(
             r"""os.makedirs(DATA_DIR, exist_ok=True)
 
-trend.to_parquet(OUT_TREND, index=False)
+univariate.to_parquet(OUT_UNIVARIATE, index=False)
 fp_train.to_parquet(OUT_FINGERPRINT, index=False)
 
 meta = {
@@ -279,24 +279,24 @@ meta = {
     "sample_weight": {"formula": "min(sqrt(n_articles_at_anchor), cap)", "cap": SAMPLE_WEIGHT_MAX},
     "inputs": {"univariate": IN_UNIVARIATE, "fingerprint": IN_FINGERPRINT},
     "outputs": {
-        "trend_training": {"path": OUT_TREND, "rows": int(len(trend)), "cols": list(trend.columns)},
+        "univariate_training": {"path": OUT_UNIVARIATE, "rows": int(len(univariate)), "cols": list(univariate.columns)},
         "fingerprint_training": {
             "path": OUT_FINGERPRINT,
             "rows": int(len(fp_train)),
             "cols": list(fp_train.columns),
         },
     },
-    "part_a_stats": trend_stats,
+    "part_a_stats": uni_stats,
     "part_b_stats": fp_stats,
-    "trend_feature_cols": TREND_FEATURE_COLS,
-    "trend_target_cols": TREND_TARGET_COLS,
+    "univariate_feature_cols": UNIVARIATE_FEATURE_COLS,
+    "univariate_target_cols": UNIVARIATE_TARGET_COLS,
     "fingerprint_feature_cols": FINGERPRINT_FEATURE_COLS,
     "fingerprint_target_cols": FINGERPRINT_TARGET_COLS,
 }
 with open(OUT_META, "w") as f:
     json.dump(meta, f, indent=2)
 
-for p in (OUT_TREND, OUT_FINGERPRINT, OUT_META):
+for p in (OUT_UNIVARIATE, OUT_FINGERPRINT, OUT_META):
     print("wrote", p, os.path.getsize(p))
 """
         )
@@ -305,20 +305,20 @@ for p in (OUT_TREND, OUT_FINGERPRINT, OUT_META):
     cells.append(md("## Validation and dataset QA\n\nStructural checks, numeric bounds, parquet round-trip, `describe` summaries, and sample rows.\n"))
     cells.append(
         code(
-            r"""# --- Structural asserts (trend) ---
-assert not trend.empty, "trend training table is empty"
-dup = trend.duplicated(subset=["dimension", "level_id", "anchor_month"]).sum()
-assert dup == 0, f"trend duplicate keys: {dup}"
+            r"""# --- Structural asserts (univariate) ---
+assert not univariate.empty, "univariate training table is empty"
+dup = univariate.duplicated(subset=["dimension", "level_id", "anchor_month"]).sum()
+assert dup == 0, f"univariate duplicate keys: {dup}"
 
 for h in HORIZONS:
-    assert trend[f"y_h{h}"].notna().all(), f"trend y_h{h} has nulls"
-assert set(trend["split_group"].cat.categories) <= {"train", "val", "holdout"}
+    assert univariate[f"y_h{h}"].notna().all(), f"univariate y_h{h} has nulls"
+assert set(univariate["split_group"].cat.categories) <= {"train", "val", "holdout"}
 for sg in ["train", "val", "holdout"]:
-    assert (trend["split_group"] == sg).any(), f"trend missing split {sg}"
+    assert (univariate["split_group"] == sg).any(), f"univariate missing split {sg}"
 
 for h in HORIZONS:
     delta = (
-        pd.to_datetime(trend["anchor_month"]) + DateOffset(months=h) - pd.to_datetime(trend["anchor_month"])
+        pd.to_datetime(univariate["anchor_month"]) + DateOffset(months=h) - pd.to_datetime(univariate["anchor_month"])
     ).dt.days
     assert (delta > 0).all()
 
@@ -337,8 +337,8 @@ for sg in ["train", "val", "holdout"]:
 # Shares are catalog proportions; allow tiny float slack above 1.0
 _share_cols_t = ["share_t"] + [f"share_lag{i}" for i in range(1, LAG_PAST_MONTHS + 1)] + [f"y_h{h}" for h in HORIZONS]
 for c in _share_cols_t:
-    lo, hi = float(trend[c].min()), float(trend[c].max())
-    assert -1e-3 <= lo <= hi <= 1.0 + 1e-3, f"trend {c} out of [0,1] range: [{lo}, {hi}]"
+    lo, hi = float(univariate[c].min()), float(univariate[c].max())
+    assert -1e-3 <= lo <= hi <= 1.0 + 1e-3, f"univariate {c} out of [0,1] range: [{lo}, {hi}]"
 
 _share_cols_f = ["share_t"] + [f"share_lag{i}" for i in range(1, LAG_PAST_MONTHS + 1)] + [f"y_h{h}" for h in HORIZONS]
 for c in _share_cols_f:
@@ -346,34 +346,34 @@ for c in _share_cols_f:
     assert -1e-3 <= lo <= hi <= 1.0 + 1e-3, f"fingerprint {c} out of [0,1] range: [{lo}, {hi}]"
 
 # Parquet round-trip (final artifacts on disk)
-trend_disk = pd.read_parquet(OUT_TREND)
+univariate_disk = pd.read_parquet(OUT_UNIVARIATE)
 fp_disk = pd.read_parquet(OUT_FINGERPRINT)
-assert len(trend_disk) == len(trend), "trend parquet row count mismatch"
+assert len(univariate_disk) == len(univariate), "univariate parquet row count mismatch"
 assert len(fp_disk) == len(fp_train), "fingerprint parquet row count mismatch"
-assert list(trend_disk.columns) == list(trend.columns), "trend parquet column order mismatch"
+assert list(univariate_disk.columns) == list(univariate.columns), "univariate parquet column order mismatch"
 assert list(fp_disk.columns) == list(fp_train.columns), "fingerprint parquet column order mismatch"
 
 print("all validation asserts PASSED (structure + share bounds + parquet round-trip)")
 
-# --- Dataset QA: trend ---
+# --- Dataset QA: univariate ---
 print("\n" + "=" * 72)
-print("TREND — `trend_training` (in-memory, matches written parquet)")
+print("UNIVARIATE — `univariate_training` (in-memory, matches written parquet)")
 print("=" * 72)
-print(f"rows: {len(trend):,}  |  columns: {len(trend.columns)}  |  memory ~{trend.memory_usage(deep=True).sum() / 1e6:.2f} MB")
-print(f"anchor_month: {trend['anchor_month'].min()} .. {trend['anchor_month'].max()}  |  unique anchors: {trend['anchor_month'].nunique()}")
+print(f"rows: {len(univariate):,}  |  columns: {len(univariate.columns)}  |  memory ~{univariate.memory_usage(deep=True).sum() / 1e6:.2f} MB")
+print(f"anchor_month: {univariate['anchor_month'].min()} .. {univariate['anchor_month'].max()}  |  unique anchors: {univariate['anchor_month'].nunique()}")
 print("\nrows per split_group:")
-print(trend["split_group"].value_counts().sort_index())
+print(univariate["split_group"].value_counts().sort_index())
 print("\nrows per dimension:")
-print(trend.groupby("dimension", observed=True).size().sort_values(ascending=False))
+print(univariate.groupby("dimension", observed=True).size().sort_values(ascending=False))
 print("\nnumeric summary (features + targets + weight):")
-_num_t = TREND_FEATURE_COLS + TREND_TARGET_COLS + ["sample_weight", "n_articles"]
-print(trend[_num_t].describe(percentiles=[0.05, 0.5, 0.95]).T.round(6))
+_num_t = UNIVARIATE_FEATURE_COLS + UNIVARIATE_TARGET_COLS + ["sample_weight", "n_articles"]
+print(univariate[_num_t].describe(percentiles=[0.05, 0.5, 0.95]).T.round(6))
 
 print("\n--- sample: first 3 rows (key columns) ---")
 _disp_t = ["anchor_month", "dimension", "level_id", "split_group", "share_t", "y_h1", "y_h6"]
-print(trend[_disp_t].head(3).to_string())
+print(univariate[_disp_t].head(3).to_string())
 print("\n--- sample: random 3 rows (seed=42) ---")
-print(trend.sample(3, random_state=42)[_disp_t].sort_values("anchor_month").to_string())
+print(univariate.sample(3, random_state=42)[_disp_t].sort_values("anchor_month").to_string())
 
 # --- Dataset QA: fingerprint ---
 print("\n" + "=" * 72)
@@ -394,7 +394,7 @@ print("\n--- sample: random 3 rows (seed=42) ---")
 print(fp_train.sample(3, random_state=42)[_disp_f].sort_values("anchor_month").to_string())
 
 print("\n--- calendar-strict yield (from build step) ---")
-print("trend_stats:", trend_stats)
+print("uni_stats:", uni_stats)
 print("fp_stats:", fp_stats)
 """
         )
@@ -406,14 +406,14 @@ print("fp_stats:", fp_stats)
             r"""import matplotlib.pyplot as plt
 
 pick = (
-    trend.sort_values(["dimension", "level_id", "anchor_month"])
+    univariate.sort_values(["dimension", "level_id", "anchor_month"])
     .groupby(["dimension", "level_id"], observed=True)
     .size()
     .sort_values(ascending=False)
     .head(1)
 )
 (d0, lid0) = pick.index[0]
-sub = trend[(trend["dimension"] == d0) & (trend["level_id"] == lid0)].sort_values("anchor_month")
+sub = univariate[(univariate["dimension"] == d0) & (univariate["level_id"] == lid0)].sort_values("anchor_month")
 if len(sub) >= 1:
     row = sub.iloc[len(sub) // 2]
     t0 = row["anchor_month"]
@@ -476,7 +476,7 @@ if len(fp_counts):
 
 Train with **FEATURE_COLS** only in `X`; pass **sample_weight** separately if the estimator supports it.
 
-**Trend — `trend_training.parquet`**
+**Univariate — `univariate_training.parquet`**
 
 | | Columns |
 |---|---------|
