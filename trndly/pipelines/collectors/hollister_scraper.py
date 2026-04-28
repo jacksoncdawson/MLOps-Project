@@ -173,28 +173,66 @@ PRODUCT_GRID_WAIT_SELECTORS = [
 # For COLOR: checked against swatch aria-labels first, then product title.
 # Hollister color names use brand words like "Rinse Black", "Cloud White", etc.
 COLOR_KEYWORDS: list[tuple[str, str]] = [
-    ("navy", "navy"),
+    # Hollister-specific brand names
     ("rinse black", "black"),
     ("washed black", "black"),
     ("jet black", "black"),
-    ("black", "black"),
     ("cloud white", "white"),
     ("optic white", "white"),
+    ("indigo wash", "blue"),
+    ("grey wash", "gray"),
+    # Shade-qualified generics (color_spectrum from lookup: Dark, Dusty Light, Light, Medium, Bright)
+    ("dusty light blue", "blue"),
+    ("medium dusty blue", "blue"),
+    ("light blue", "blue"),
+    ("medium blue", "blue"),
+    ("dark blue", "blue"),
+    ("bright blue", "blue"),
+    ("light green", "green"),
+    ("dark green", "green"),
+    ("bright green", "green"),
+    ("dusty green", "green"),
+    ("light pink", "pink"),
+    ("bright pink", "pink"),
+    ("hot pink", "pink"),
+    ("dark pink", "pink"),
+    ("light red", "red"),
+    ("bright red", "red"),
+    ("dark red", "red"),
+    ("light brown", "brown"),
+    ("dark brown", "brown"),
+    ("light purple", "purple"),
+    ("dark purple", "purple"),
+    ("mustard", "beige"),
+    ("butter", "beige"),
+    ("golden", "beige"),
+    ("terracotta", "red"),
+    ("rust", "red"),
+    ("brick", "red"),
+    # Standard generics
+    ("navy", "navy"),
+    ("black", "black"),
     ("white", "white"),
     ("cream", "white"),
     ("ivory", "white"),
+    ("off white", "white"),
     ("red", "red"),
     ("burgundy", "red"),
     ("maroon", "red"),
+    ("wine", "red"),
+    ("coral", "pink"),
+    ("peach", "pink"),
     ("sage", "green"),
     ("olive", "green"),
+    ("forest", "green"),
+    ("moss", "green"),
     ("khaki green", "green"),
     ("green", "green"),
     ("medium wash", "blue"),
     ("light wash", "blue"),
     ("dark wash", "blue"),
-    ("indigo wash", "blue"),
     ("indigo", "blue"),
+    ("teal", "blue"),
     ("sky blue", "blue"),
     ("cobalt", "blue"),
     ("blue", "blue"),
@@ -205,8 +243,13 @@ COLOR_KEYWORDS: list[tuple[str, str]] = [
     ("camel", "beige"),
     ("sand", "beige"),
     ("taupe", "beige"),
+    ("ecru", "beige"),
+    ("khaki", "beige"),
+    ("amber", "brown"),
     ("mocha", "brown"),
     ("chocolate", "brown"),
+    ("cognac", "brown"),
+    ("espresso", "brown"),
     ("brown", "brown"),
     ("blush", "pink"),
     ("dusty pink", "pink"),
@@ -215,19 +258,23 @@ COLOR_KEYWORDS: list[tuple[str, str]] = [
     ("pink", "pink"),
     ("lavender", "purple"),
     ("lilac", "purple"),
+    ("plum", "purple"),
+    ("violet", "purple"),
     ("purple", "purple"),
     ("charcoal", "gray"),
     ("heather gray", "gray"),
     ("heather grey", "gray"),
+    ("slate", "gray"),
+    ("stone", "gray"),
     ("light gray", "gray"),
     ("dark gray", "gray"),
-    ("grey wash", "gray"),
     ("grey", "gray"),
     ("gray", "gray"),
 ]
 
 # For CATEGORY: checked against product title.
 CATEGORY_KEYWORDS: list[tuple[str, str]] = [
+    # Pants / bottoms
     ("barrel jean", "pants"),
     ("straight jean", "pants"),
     ("slim jean", "pants"),
@@ -238,16 +285,35 @@ CATEGORY_KEYWORDS: list[tuple[str, str]] = [
     ("legging", "pants"),
     ("jogger", "pants"),
     ("sweatpant", "pants"),
+    ("dungarees", "pants"),
+    ("overalls", "pants"),
     ("pant", "pants"),
+    # Shorts
     ("shorts", "shorts"),
+    # Skirt
+    ("sarong", "skirt"),
     ("skirt", "skirt"),
+    # Dress / full body
+    ("playsuit", "dress"),
     ("romper", "dress"),
     ("jumpsuit", "dress"),
+    ("bodysuit", "dress"),
+    ("body suit", "dress"),
     ("dress", "dress"),
+    # Outerwear
+    ("anorak", "outerwear"),
+    ("windbreaker", "outerwear"),
+    ("gilet", "outerwear"),
+    ("waistcoat", "outerwear"),
     ("jacket", "outerwear"),
     ("coat", "outerwear"),
+    ("parka", "outerwear"),
+    ("puffer", "outerwear"),
     ("blazer", "outerwear"),
     ("cardigan", "outerwear"),
+    # Tops
+    ("polo", "tops"),
+    ("corset", "tops"),
     ("hoodie", "tops"),
     ("sweatshirt", "tops"),
     ("sweater", "tops"),
@@ -260,11 +326,32 @@ CATEGORY_KEYWORDS: list[tuple[str, str]] = [
     ("blouse", "tops"),
     ("cami", "tops"),
     ("tank", "tops"),
+    ("vest", "tops"),
     ("top", "tops"),
+    # Shoes
+    ("pump", "shoes"),
+    ("heel", "shoes"),
+    ("loafer", "shoes"),
+    ("mule", "shoes"),
+    ("clog", "shoes"),
+    ("ballerina", "shoes"),
+    ("slipper", "shoes"),
+    ("flip flop", "shoes"),
+    ("wedge", "shoes"),
     ("sneaker", "shoes"),
     ("boot", "shoes"),
     ("sandal", "shoes"),
     ("shoe", "shoes"),
+    # Accessories
+    ("sunglasses", "accessories"),
+    ("glasses", "accessories"),
+    ("watch", "accessories"),
+    ("wallet", "accessories"),
+    ("bracelet", "accessories"),
+    ("necklace", "accessories"),
+    ("earring", "accessories"),
+    ("ring", "accessories"),
+    ("gloves", "accessories"),
     ("bag", "accessories"),
     ("belt", "accessories"),
     ("hat", "accessories"),
@@ -274,30 +361,63 @@ CATEGORY_KEYWORDS: list[tuple[str, str]] = [
 ]
 
 # For MATERIAL: checked against product title.
+# Sourced from lookup.csv material list + common retail keyword variants.
 MATERIAL_KEYWORDS: list[tuple[str, str]] = [
+    # Denim
     ("denim", "denim"),
     ("jean", "denim"),
+    # Linen
     ("linen-blend", "linen"),
     ("linen", "linen"),
+    # Silk / silk-like
+    ("chiffon", "silk"),
+    ("crepe", "silk"),
+    ("georgette", "silk"),
     ("silk", "silk"),
     ("satin", "silk"),
+    # Wool / wool-like
     ("cashmere", "wool"),
+    ("shearling", "wool"),
+    ("sherpa", "wool"),
+    ("faux fur", "wool"),
     ("wool", "wool"),
     ("fleece", "wool"),
+    # Leather / leather-like
+    ("imitation leather", "leather"),
+    ("imitation suede", "leather"),
     ("faux leather", "leather"),
     ("vegan leather", "leather"),
+    ("suede", "leather"),
     ("leather", "leather"),
+    # Knit / knit-like
     ("rib-knit", "knit"),
     ("ribbed", "knit"),
+    ("jersey", "knit"),
+    ("velvet", "knit"),
+    ("velour", "knit"),
     ("knit", "knit"),
     ("crochet", "knit"),
     ("waffle", "knit"),
+    # Polyester / synthetics
     ("nylon", "polyester"),
+    ("acrylic", "polyester"),
+    ("tulle", "polyester"),
+    ("mesh", "polyester"),
+    ("spandex", "polyester"),
+    ("elastane", "polyester"),
     ("polyester", "polyester"),
     ("recycled", "polyester"),
+    # Cotton / cellulosics
     ("poplin", "cotton"),
     ("twill", "cotton"),
     ("terry", "cotton"),
+    ("corduroy", "cotton"),
+    ("canvas", "cotton"),
+    ("tencel", "cotton"),
+    ("lyocell", "cotton"),
+    ("modal", "cotton"),
+    ("viscose", "cotton"),
+    ("rayon", "cotton"),
     ("cotton", "cotton"),
 ]
 
@@ -700,15 +820,24 @@ def count_attribute_frequencies(
     return counts
 
 
-def normalize_counts(counts: dict[str, dict[str, int]]) -> dict[str, dict[str, float]]:
+def normalize_counts(
+    counts: dict[str, dict[str, int]],
+    total_items: int,
+) -> dict[str, dict[str, float]]:
+    """
+    Normalize raw feature counts to proportion scores.
+
+    score = count / total_items  (actual market-share proportion)
+
+    Using total items scraped as the denominator (instead of the per-feature
+    max count) makes scores directly comparable across retailers and over time:
+    a score of 0.30 always means "30% of products on this site had this value".
+    """
+    denom = max(total_items, 1)
     scores: dict[str, dict[str, float]] = {}
     for feature_type, value_counts in counts.items():
-        if not value_counts:
-            scores[feature_type] = {}
-            continue
-        max_count = max(value_counts.values())
         scores[feature_type] = {
-            value: round(count / max_count, 6)
+            value: round(count / denom, 6)
             for value, count in value_counts.items()
         }
     return scores
@@ -830,8 +959,9 @@ def main() -> None:
         )
 
     counts = count_attribute_frequencies(titles, swatch_colors)
-    scores = normalize_counts(counts)
+    scores = normalize_counts(counts, total_items=len(titles))
 
+    print(f"\nTotal items used as proportion denominator: {len(titles)}")
     print("\nAttribute coverage:")
     for feature_type in FEATURE_TYPES:
         found = len(counts.get(feature_type, {}))
