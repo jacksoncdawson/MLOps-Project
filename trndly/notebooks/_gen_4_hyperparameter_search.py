@@ -1,4 +1,4 @@
-"""One-off generator for 4_hyperparameter_search.ipynb — run from trndly/: python Notebooks/_gen_4_hyperparameter_search.py"""
+"""One-off generator for 4_hyperparameter_search.ipynb — run from trndly/: python notebooks/_gen_4_hyperparameter_search.py"""
 from __future__ import annotations
 
 import json
