@@ -1,5 +1,6 @@
 // dataProvider.js — session-scoped store for inventory + signals,
-// with API-backed trends + options + health.
+// with fetched trends + options + health (published static JSON by
+// default; the dev API when window.API_BASE is set — see api.js).
 //
 // ─────────────────────────────────────────────────────────────────
 // Public surface (the contract screens consume):
@@ -14,8 +15,8 @@
 //   }
 //   <DataProvider>
 //
-// trends / options / health come from the FastAPI service. When they fail
-// or are still loading, this provider exposes `undefined`/error rather than
+// trends / options / health come from those fetches. When they fail or are
+// still loading, this provider exposes `undefined`/error rather than
 // substituting fixtures — the screens render explicit loading and error
 // states so the failure mode is visible.
 //

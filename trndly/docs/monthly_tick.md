@@ -1,7 +1,8 @@
 # Monthly tick runbook
 
-The monthly tick produces a fresh predictions parquet that the FastAPI
-service serves. This document is the operator runbook: prerequisites,
+The monthly tick produces a fresh predictions parquet and publishes it
+as the static JSON the SPA serves. This document is the operator
+runbook: prerequisites,
 how to invoke each stage, what to expect, and how to debug a failure.
 
 ---
@@ -22,18 +23,12 @@ how to invoke each stage, what to expect, and how to debug a failure.
    them.
 
 3. **MLflow tracking URI** *(optional — not used by the monthly tick).*
-   The monthly tick's champion management is fully local: promotion is
-   decided by comparing this tick's candidate `model_training_run.json` against
-   `data/models/champion.json` (see the `evaluate` stage). The
-   self-hosted MLflow server used during **model development / hyperparameter
-   sweeps** (`notebooks/_gen_4_hyperparameter_search.py`) has since been
-   retired and is being rebuilt private (see `serving-redesign.md`); it was
-   never used by any stage below.
-   The `MLFLOW_*` vars in `backend/services/.env` are likewise leftovers
-   from an older registry-backed serving design and are not read by the
-   tick or the serving layer. *(See "MVP vs. target" at the bottom — the
-   MLflow registry champion alias is the target state, deferred until
-   cloud deployment.)*
+   The tick's champion management is fully local: promotion is decided by
+   comparing this tick's candidate `model_training_run.json` against
+   `data/models/champion.json` (see the `evaluate` stage). The private
+   MLflow (Cloud Run + Cloud SQL + GCS, see `serving-redesign.md` Phase 3)
+   is live but not yet wired into any stage below — that's Phase 4
+   ("MVP vs. target" at the bottom).
 
 4. **Outbound network** for the scrape stage. Each retailer has its own
    bot-protection quirks (see `pipelines/collectors/README.md`).
@@ -158,13 +153,15 @@ To override inputs/outputs, invoke the module directly with
 ### `aggregate` — `pipelines.monthly.aggregate`
 
 Reads `historical_{fingerprint,univariate}.parquet` + globs every
-`live_*_<YYYY-MM>.parquet`; concatenates with dedup on
+`live_*_<YYYY-MM>.parquet` + unions the persistent synthetic-prior cube
+`backfill_*.parquet` when present (ADR 0002); concatenates with dedup on
 `(month, *FINGERPRINT_COLS, source)` (fingerprint) or
 `(month, dimension, level_id, source)` (univariate) keeping `last`;
 writes the tick's `data/ticks/<YYYY-MM>/merged_{fingerprint,univariate}.parquet`.
 
-Always rebuilds — `historical_*` is never overwritten. If no live
-parquets are found, the merged cube is historical-only.
+Always rebuilds — `historical_*` and `backfill_*` are inputs, never
+overwritten. If no live parquets are found, the merged cube is
+historical-only.
 
 ### `features` — `pipelines.monthly.features`
 
@@ -229,12 +226,13 @@ Exact counts depend on the eligible anchor (the sparse live 2026-05 anchor
 yields ~120 univariate / ~3,830 fingerprint rows).
 
 Anchor month is the latest cube month with 3 contiguous prior months,
-picked separately per cube (`_find_eligible_anchor`). If the latest
-live month is isolated, predict logs a `WARNING`, tells you to run
-`scripts/backfill_anchor_lags.py` to synthesize priors, and falls back
-to the nearest eligible (typically historical) anchor. Individual
-fingerprints / levels that lack lag coverage at the chosen anchor are
-silently skipped.
+picked separately per cube (`_find_eligible_anchor`). The persistent
+backfill cube (ADR 0002) normally keeps the latest live month eligible;
+if it's still isolated, predict logs a `WARNING`, tells you to run
+`scripts/backfill_anchor_lags.py` to regenerate the synthetic priors,
+and falls back to the nearest eligible (typically historical) anchor.
+Individual fingerprints / levels that lack lag coverage at the chosen
+anchor are silently skipped.
 
 #### State classification (used by `predict`)
 
@@ -373,14 +371,17 @@ deferred to cloud deployment and are NOT how the tick works today:
   (`MlflowClient.set_registered_model_alias(name=..., alias='champion',
   version=...)`) against the rebuilt private MLflow registry (Cloud Run +
   Cloud SQL + GCS, see `serving-redesign.md`).
-- **Anchor lag backfill.** *Now:* `scripts/backfill_anchor_lags.py` is a
-  manual stopgap run outside the tick when the latest live month is
-  isolated. *Target:* automated synthetic-lag synthesis within the tick.
+- **Anchor lag backfill.** *Now:* the persistent backfill cube
+  (`data/processed/backfill_*.parquet`, generated once by
+  `scripts/backfill_anchor_lags.py` and unioned in by `aggregate` —
+  ADR 0002). Synthetic data by design; *target:* delete it once live
+  scrapes reach ≥4 contiguous months (~2026-08).
 - **Scraper parallelism.** *Now:* sequential subprocess calls
   (gap → uniqlo → american_eagle → hollister), ~9–10 min with PDP
   enrichment. *Target:* parallel dispatch (blocked today by each
   scraper owning its own `asyncio.run`).
-- **Serving / storage / cadence.** *Now:* read-only FastAPI over local
-  parquets; manual CLI invocation; no IaC; runs on a dev machine.
-  *Target:* GCS/BigQuery-backed data, Cloud Scheduler + container job for
-  the tick, Cloud Run for the API.
+- **Storage / cadence.** *Now:* local parquet, manual CLI invocation
+  from a dev machine (serving itself is already static + cloud: Firebase
+  Hosting, with Terraform IaC in `infra/`). *Target:* all data in GCS +
+  a scheduled, idempotent Cloud Run Job for the tick — Phase 6
+  (PROPOSED, gated on ADR 0001).

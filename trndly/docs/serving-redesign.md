@@ -2,7 +2,7 @@
 
 **Serving redesign · Pipeline hardening · MLflow rebuild · Infrastructure-as-Code**
 
-**Status:** Accepted (2026-06-23), revised after an adversarial review pass. Design + sequence locked; implementation not started. Covers the full build: the tick, static serving, a private MLflow, model-lifecycle wiring, the dynamic tier, security/incident remediation — all infra as Terraform.
+**Status:** Accepted 2026-06-23 (revised after an adversarial review pass). **Phases 0–3 SHIPPED 2026-06-24** — live at [trndly.web.app](https://trndly.web.app). Phase 4 (lifecycle wiring) and Phase 5 (dynamic tier) pending; Phase 6 proposed (gated on ADR 0001). Covers the full build: the tick, static serving, a private MLflow, model-lifecycle wiring, the dynamic tier, security/incident remediation — all infra as Terraform.
 
 ---
 
@@ -14,7 +14,7 @@ trndly serves **precomputed monthly forecasts** from two models:
 
 The monthly tick (`scrape → build_cube → aggregate → features → train → evaluate → predict`) does **all** inference offline and writes Parquet. No live inference in serving.
 
-### Verified reality (live-checked 2026-06-23)
+### Reality before the build (live-checked 2026-06-23 — historical context; Phases 0–3 have since shipped)
 
 | Fact | Detail |
 |------|--------|
@@ -25,7 +25,7 @@ The monthly tick (`scrape → build_cube → aggregate → features → train �
 | Dockerfile | **Broken**; being **deleted** (+ its orphaned `.dockerignore`) |
 | GCP project | `ml-ops-491417` (#117350290566). **Billing linked** to edu acct `01E4BE-D797BA-7C7744` |
 | Old MLflow VM | **DELETED.** Ran unauthenticated on `0.0.0.0/0:5000` and was **compromised** (registry polluted w/ OAST-callback models; MLflow-CVE SSRF/RCE). Backend was **SQLite** (not Postgres); artifacts **local on the VM** (not GCS). → rebuilt clean (Phase 3) |
-| Incident remediation | ✅ (2026-06-23) Key revoked, all SAs deleted, VM/firewall destroyed, old bucket `trndly-mlops-us` audited (clean) + **renamed to `trndly-data`**, dead IP/port/bucket scrubbed from README/TODO/docs. Remaining: delete `backend/services/.env` when FastAPI leaves serving (Phase 2). See §2.5 |
+| Incident remediation | ✅ (2026-06-23) Key revoked, all SAs deleted, VM/firewall destroyed, old bucket `trndly-mlops-us` audited (clean) + **renamed to `trndly-data`**, dead IP/port/bucket scrubbed from README/TODO/docs. `backend/services/.env` deleted in Phase 2 ✅ — remediation fully closed. See §2.5 |
 
 **The serving problem:** a hosted app server reading 0.2 MB at boot and echoing it is the wrong shape — it's a static-publish problem. Only inventory + auth are genuinely dynamic.
 
@@ -41,7 +41,7 @@ The monthly tick (`scrape → build_cube → aggregate → features → train �
 6. **Stay on GCP.** Résumé claims out of scope until the build is done.
 
 ### 2.5 Incident remediation (do NOW — Phase 1/2, not "future hardening")
-- ✅ **DONE (2026-06-23):** `VERTEX_API_KEY` revoked + **all service accounts deleted**; VM + firewall already destroyed. The live exposure is closed. Still pending: **delete `backend/services/.env`** when FastAPI leaves serving (Phase 2) + make `scheduleServer`'s `load_dotenv` optional/removed.
+- ✅ **DONE (2026-06-23):** `VERTEX_API_KEY` revoked + **all service accounts deleted**; VM + firewall already destroyed. The live exposure is closed. ✅ **DONE (Phase 2):** `backend/services/.env` deleted; `scheduleServer` no longer loads `.env`.
 - ✅ **DONE (2026-06-23):** repo scrubbed of the dead IP/port/old-bucket and the false "Postgres" claim across `README.md`, `TODO.md`, `docs/{api,monthly_tick,architecture}.md` (replaced with accurate retired/rebuilt-private prose).
 - ✅ **DONE (2026-06-23):** old bucket `trndly-mlops-us` audited (only old `data/synthetic/`, **no `mlflow/` remnants**, no public IAM), **renamed to `trndly-data`** (fresh bucket w/ uniform access + public-access-prevention; old deleted). NOTE: the MLflow rebuild's artifacts bucket is provisioned **fresh via Terraform in Phase 3** — not this legacy bucket.
 
@@ -133,10 +133,10 @@ Ordered by dependency. **Why this order:** local-first de-risks the riskiest swa
 
 | Phase | Goal | Depends on |
 |------|------|-----------|
-| **0 — Foundations** | Billing ✅ + TF skeleton (separate state bootstrap, providers, APIs, build identity) | — |
-| **1 — Tick hardening + publisher + remediation** | Immutable raw, build_cube extraction, **local champion guard**, `publish.py`, golden test, frontend repoint (incl. fingerprint rewrite), incident remediation — a working **local** static demo | — (local) |
-| **2 — Static serving live** | Firebase Hosting (TF) + deploy; delete FastAPI/Dockerfile/.dockerignore; CI deploy job | 1, 0 |
-| **3 — MLflow rebuilt (private)** | Cloud Run + Cloud SQL + GCS + `sa-mlflow` (TF); image; validate private access | 0 |
+| **0 — Foundations** ✅ SHIPPED | Billing ✅ + TF skeleton (separate state bootstrap, providers, APIs, build identity) | — |
+| **1 — Tick hardening + publisher + remediation** ✅ SHIPPED | Immutable raw, build_cube extraction, **local champion guard**, `publish.py`, golden test, frontend repoint (incl. fingerprint rewrite), incident remediation — a working **local** static demo | — (local) |
+| **2 — Static serving live** ✅ SHIPPED | Firebase Hosting (TF) + deploy; delete FastAPI/Dockerfile/.dockerignore; CI deploy job | 1, 0 |
+| **3 — MLflow rebuilt (private)** ✅ SHIPPED | Cloud Run + Cloud SQL + GCS + `sa-mlflow` (TF); image; validate private access | 0 |
 | **4 — Lifecycle wiring** | `train` logs → `evaluate` flips `champion` alias → `predict` loads it (supersedes the local guard) | 3 |
 | **5 — Dynamic tier (deferred)** | Firestore + Auth (TF) → persistent inventory + login | 0 |
 | **6 — Cloud-native tick** *(proposed)* | Scheduled, idempotent tick on Cloud Run Job; **all data in GCS, none local**; Cloud Scheduler; `sa-tick`; GCS→CDN refresh. **Sequenced after Phase 4.** Status: PROPOSED — review first. See [phase6-cloud-native-tick.md](phase6-cloud-native-tick.md) | 4, 0, ADR 0001 |
