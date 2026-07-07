@@ -1,25 +1,23 @@
-# trndly API reference
+# trndly API reference (local dev server)
 
-The FastAPI service at `backend/services/scheduleServer.py` exposes a
-small read-only API over the precomputed predictions parquet. All data
-routes are `GET`; no request triggers a model call. (The service loads
-both predictions parquets once at startup and only reads them — all
-inference is precomputed monthly by `pipelines.monthly.predict`.)
+**Production serving is static** — the tick's `publish` stage emits
+browser-ready JSON that ships to Firebase Hosting; there is no server in
+the request path (see [architecture.md](architecture.md)). The FastAPI
+service documented here (`backend/services/scheduleServer.py`) is a
+**local development convenience**: it serves the same data over HTTP
+endpoints, mounts the SPA at `/ui/`, and doubles as the schema
+reference. It imports the shared `pipelines/serving/` module — the same
+code `publish` uses — so its responses match the published JSON.
 
-Default base URL when running locally: `http://127.0.0.1:8000` (or the
-port passed to uvicorn). The static UI mounts at `/ui/`; everything
-below is same-origin so no CORS setup is required. `GET /` issues a
-307 redirect to `/ui/` (Starlette's `RedirectResponse` default).
+All data routes are `GET`; no request triggers a model call (all
+inference is precomputed monthly by `pipelines.monthly.predict`; the
+service loads the predictions parquets once at startup and only reads
+them).
 
-OpenAPI JSON: `GET /openapi.json` — Swagger UI: `GET /docs` (FastAPI
-defaults; not overridden).
-
-**MLflow boundary.** `backend/services/.env` holds a handful of
-`MLFLOW_*` variables that are **leftovers from an older, registry-backed
-serving design and are not referenced anywhere in `scheduleServer.py`** —
-this service never calls MLflow or a live model. (That development MLflow
-server has since been retired; `.env` is slated for removal — see
-[serving-redesign.md](serving-redesign.md).)
+Default base URL: `http://127.0.0.1:8000` (or the port passed to
+uvicorn). The UI at `/ui/` is same-origin, so no CORS setup is required.
+`GET /` issues a 307 redirect to `/ui/`. OpenAPI JSON: `GET
+/openapi.json` — Swagger UI: `GET /docs`.
 
 **When predictions aren't loaded.** If the startup load fails (e.g. no
 `predictions_*.parquet` on disk), `/health` reports
@@ -212,11 +210,13 @@ anchor month (t-3..t). 5-D combinations that didn't appear in the cube
 at the latest anchor — or that lack lag coverage — are silently
 skipped during `pipelines.monthly.predict` and therefore 404 here.
 
-**Frontend handling of 404s.** The React UI calls this endpoint for the
-Item Detail "Overall popularity" chart. When it 404s, the frontend falls
-back to `synthesizeFingerprintSeries(tags, trends)` in `frontend/api.js`
+**Frontend handling of misses.** In static mode the UI looks the 5-D key
+up in `fingerprint.json` client-side; this endpoint is only called when
+`window.API_BASE` points at a dev server. Either way, on a miss (null
+lookup / 404) the frontend falls back to
+`synthesizeFingerprintSeries(tags, trends)` in `frontend/api.js`
 — a multiplicative joint built from the per-dimension univariate
-forecasts already in memory (no extra API call). The chart legend
+forecasts already in memory (no extra fetch). The chart legend
 labels the result: "We've never seen this item before! Predicting based
 on this item's distinct characteristics." See
 [architecture.md § Item recommendation pipeline](architecture.md#item-recommendation-pipeline)
@@ -254,6 +254,6 @@ tuning").
 
 The `BUNDLE` global is loaded once at startup via the FastAPI lifespan
 hook. To pick up a new monthly tick's output, **restart the service**.
-There's no hot-reload endpoint — predictions change at most monthly,
-and a Cloud Run revision rollout is the natural refresh (aspirational —
-the service currently runs locally; cloud deployment is future work).
+There's no hot-reload endpoint — predictions change at most monthly. (The
+production static path has no equivalent step: `publish` refreshes
+`frontend/data/*.json` and `firebase deploy` ships it.)

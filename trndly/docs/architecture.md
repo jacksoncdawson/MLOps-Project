@@ -51,28 +51,29 @@ at the bottom captures the GCP target we're working toward.
                               │
                               ▼
                 ┌──────────────────────────────────────────────┐
-                │  backend/services/scheduleServer.py (FastAPI)│
-                │    GET /options       — dropdown vocabularies│
-                │    GET /trends        — univariate predictions
-                │    GET /forecast/fingerprint — single 5-D row│
-                │    GET /health        — bundle status        │
-                │    /ui/  → static React app (no build step)  │
+                │  Firebase Hosting (CDN)  — trndly.web.app    │
+                │    SPA + frontend/data/*.json, same-origin   │
+                │    (deployed via `firebase deploy` / CI)     │
                 └──────────────────────────────────────────────┘
                               │
                               ▼
                 ┌──────────────────────────────────────────────┐
                 │  frontend/  (React + JSX-via-Babel)          │
-                │    Trends screen      ← GET /trends          │
-                │    Add Item screen    ← GET /options         │
-                │    Item Detail screen ← GET /forecast/fingerprint
+                │    Trends screen      ← trends.json          │
+                │    Add Item screen    ← options.json         │
+                │    Item Detail screen ← fingerprint.json     │
+                │                         (client 5-D lookup)  │
                 │    Inventory          (session state)        │
                 └──────────────────────────────────────────────┘
 ```
 
-Inference is **precomputed monthly**. The API is a read-only layer over
-the predictions parquet — there are no live `model.predict()` calls in
-the request path. The `BUNDLE` global is loaded once at startup from the
-latest predictions parquets via the FastAPI lifespan hook.
+Inference is **precomputed monthly** and serving is **static**: the
+`publish` stage emits browser-ready JSON, and there is no server — and no
+live `model.predict()` call — in the request path. For local development,
+`backend/services/scheduleServer.py` (FastAPI) serves the same data over
+HTTP endpoints and mounts the SPA at `/ui/` (see
+[api.md](api.md)); it imports the same shared `pipelines/serving/`
+module as `publish`, so the two paths can't drift apart silently.
 
 ---
 
@@ -232,10 +233,11 @@ becomes eligible.
 
 ---
 
-## API surface
+## Local dev API surface
 
-`backend/services/scheduleServer.py`. All routes are GET; no POST request
-triggers a model call.
+`backend/services/scheduleServer.py` — the local development server (not
+in the production request path; see [api.md](api.md) for full endpoint
+docs). All routes are GET; no request triggers a model call.
 
 
 | Route                       | Behavior                                                                                                           |
@@ -277,25 +279,27 @@ setup; the in-house hook covers what we actually use in ~50 lines.
 
 - `inventory`, `signals`, `addItem` — session-scoped local state (start empty;
   no seeded mocks)
-- `trends` — `GET /trends`. `undefined` while loading/errored; screens
+- `trends` — `trends.json` (dev API: `/trends`). `undefined` while loading/errored; screens
   render explicit loading/error states instead of silently substituting
   fixtures. Each row carries 10 numeric points (`share_lag3..t` joined
   from the merged cube at service startup, then `y_h1..y_h6`) so charts
   draw 3 months of history + 6 months of forecast. The `api.js` reshape
   drops `Unknown` rows (every dimension reserves `id=0 = Unknown` for
   unclassified items — surfacing those in the UI isn't actionable).
-- `options` / `lookupIds` — `GET /options`, falling back to the
+- `options` / `lookupIds` — `options.json` (dev API: `/options`), falling back to the
   `LOOKUP_OPTIONS` seed in `data.js` only for `colorSpectrum` /
   `productGroup` (the two vocabularies the endpoint doesn't expose yet).
-- `health` — `GET /health` (15s poll, revalidate-on-focus); drives the
+- `health` — `health.json` (dev API: `/health`; 15s poll, revalidate-on-focus); drives the
   sidebar API status pill + the chart-legend "synthetic past" footnote
   when `lags_synthetic` is set.
 
-`api.js` reshapes API responses (`mapTrendsToTrendData`,
+`api.js` fetches the published static JSON by default (relative
+`./data/*.json` paths, same-origin on Firebase Hosting or the dev
+server's `/ui/` mount) and reshapes it (`mapTrendsToTrendData`,
 `mapOptionsToLookupOptions`, `indexOptionsById`) into the shapes the
-screens already consume, so the swap from local parquet to cloud SQL
-will not touch frontend code as long as the API response shapes stay
-stable.
+screens consume. Setting `window.API_BASE` repoints the fetches at a
+live `scheduleServer` — the response shapes are identical, so screens
+don't care which mode they're in.
 
 ### Item recommendation pipeline
 
@@ -338,14 +342,14 @@ The two never coerce into each other.
 
 ## Testing
 
-The suite is **256 collected tests** (253 run by default; 3 `live`
-network tests are deselected) across **107 `def test_` functions** — 55
-in `tests/scrapers/`, 36 in `tests/monthly/`, and 16 at the root
-(`test_paths.py` + `test_trndly.py`). The gap between functions and
-collected count is parametrization (`test_feature_lookups.py` and
-`test_state.py` dominate). `pytest.ini` sets `addopts = -m "not live"`
-(live retailer tests opt-in via `pytest -m live`) and
-`asyncio_mode = strict`.
+The suite is **296 collected tests** (293 run by default; 3 `live`
+network tests are deselected) across `tests/scrapers/`,
+`tests/monthly/`, `tests/serving/` (the publish golden-file + dev-server
+parity tests), and the root (`test_paths.py` + `test_trndly.py`).
+Collected count exceeds function count because of parametrization
+(`test_feature_lookups.py` and `test_state.py` dominate). `pytest.ini`
+sets `addopts = -m "not live"` (live retailer tests opt-in via
+`pytest -m live`) and `asyncio_mode = strict`.
 
 **CI:** `.github/workflows/tests.yml` (at the **repo root**, one level
 above the `trndly/` package) runs `pytest tests -v --junitxml=pytest-report.xml`
@@ -363,7 +367,7 @@ artifact. Tests are gated — a non-zero exit blocks the run.
 | Live cube validators  | `tests/test_trndly.py`   | concat-compatibility with historical                     |
 | Tick unit tests       | `tests/monthly/`         | state classifier, evaluate logic, predict E2E            |
 | Scrapers              | `tests/scrapers/`        | Mock-based; some require `pytest-asyncio`/`pytest-httpx` |
-| API endpoints         | (manual / curl)          | No automated FastAPI integration tests yet; smoke covered in `monthly_tick.md` |
+| Publish + dev API     | `tests/serving/`         | Golden-file diff on published JSON (the lag-join gate) + server-parity tests |
 
 
 ---
@@ -384,21 +388,20 @@ layout (buckets are provisioned via Terraform per the build plan,
 - `gs://<data-bucket>/ticks/<YYYY-MM>/` — immutable per-tick checkpoint (predictions + `published/`), per plan §12.5
 - `gs://<data-bucket>/processed/` — shared cube inputs (`historical_*` / `live_*`)
 
-### Cloud cadence: manual CLI → Cloud Scheduler + Vertex job
+### Cloud cadence: manual CLI → scheduled cloud tick (Phase 6, PROPOSED)
 
-Replace `python -m pipelines.monthly run` with a Vertex Custom Container
-training job, wrapped by Cloud Scheduler firing on the 1st of each
-month. The CLI's stage order doesn't change.
+Replace `python -m pipelines.monthly run` with an idempotent Cloud Run
+Job fired by Cloud Scheduler, with all data in GCS — see
+[phase6-cloud-native-tick.md](phase6-cloud-native-tick.md); the serving
+refresh is gated on [ADR 0001](decisions/0001-cloud-tick-cdn-refresh.md).
+The CLI's stage order doesn't change.
 
-### MLflow registry: local file → managed champion alias
+### MLflow registry: local champion file → managed champion alias (Phase 4)
 
-A self-hosted MLflow tracking + model registry server was used during
-development (`notebooks/_gen_4_hyperparameter_search.py` logs runs to
-`MLFLOW_TRACKING_URI` when set, otherwise a local `file:../mlruns` store).
-That dev server has since been **retired**; the planned replacement is a
-**private, managed MLflow** (Cloud Run + Cloud SQL + GCS) — see
-[serving-redesign.md](serving-redesign.md). What is
-**not** yet wired up:
+The **private MLflow is live** (Cloud Run + Cloud SQL + GCS artifacts,
+IAM-gated — built in Phase 3 of [serving-redesign.md](serving-redesign.md);
+the compromised dev-era server it replaces was retired and destroyed).
+What is **not** yet wired up:
 
 - The monthly tick's champion management. `evaluate.py` is explicitly the
   local-MVP version — the champion is the local `data/models/champion.json`
@@ -413,23 +416,12 @@ That dev server has since been **retired**; the planned replacement is a
   referenced by `scheduleServer.py`. Serving reads precomputed parquet/JSON
   only — the static publisher's output, with no compute behind it.
 
-### Frontend hosting: same-origin uvicorn → Firebase Hosting (static)
+### Auth: none → Firebase Auth + Firestore (Phase 5)
 
-For local development the React app is served at `/ui/` from `scheduleServer`
-(a dev convenience + live contract reference). The redesign
-([serving-redesign.md](serving-redesign.md), Phase 2) makes serving fully
-**static**: the monthly tick's `publish` stage emits browser-ready JSON, and
-the SPA + JSON ship to **Firebase Hosting** (CDN, same-origin — no CORS).
-There is **no API tier** in the serving path — 0.2 MB of monthly-static data
-is a static-publish problem, not a server one, so FastAPI leaves serving
-entirely and there is no Cloud Run API behind the SPA.
-
-### Auth: none → Firebase Auth
-
-Add `Authorization: Bearer <token>` validation middleware to the API.
-Inventory becomes per-user (Firestore-backed instead of session state).
-(`frontend/auth.js` is a demo stub — `login()` always succeeds and
-returns a hardcoded demo user.)
+Firebase Auth replaces the demo stub (`frontend/auth.js` — `login()`
+always succeeds and returns a hardcoded demo user), and inventory
+becomes per-user in Firestore (instead of session state), with security
+rules scoping every read/write to the signed-in `uid`.
 
 ### Containers: the broken serving Dockerfile is gone
 

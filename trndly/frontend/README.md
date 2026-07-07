@@ -3,35 +3,45 @@
 Desktop web app for trndly: a tool for resellers (Depop, Poshmark, vintage
 shops) that pairs trend prediction with per-item listing recommendations.
 
-The screens consume live forecasts from the FastAPI service (see
-[../docs/api.md](../docs/api.md)). Auth is still a demo no-op — one of a few
-remaining placeholders (Settings is unwired and inventory isn't persisted;
-see below).
+The screens consume the published static JSON in `frontend/data/`
+(emitted by the tick's `publish` stage) — the same files Firebase Hosting
+serves in production. A local FastAPI server is available as a dev
+alternative (see [../docs/api.md](../docs/api.md)). Auth is still a demo
+no-op — one of a few remaining placeholders (Settings is unwired and
+inventory isn't persisted; see below).
 
 ---
 
 ## Quick start
 
-No build step. The app uses Babel-in-browser to transpile JSX on load.
-Run it through the FastAPI service so the frontend and API share an origin
-— that way `/trends`, `/options`, `/forecast/fingerprint`, and `/health`
-resolve without CORS:
+No build step. The app uses Babel-in-browser to transpile JSX on load,
+and fetches its data from relative `./data/*.json` paths — so any static
+server pointed at `frontend/` works:
+
+```sh
+# from trndly/frontend/
+python3 -m http.server 8080
+# → http://localhost:8080/
+```
+
+Alternatively, run the FastAPI dev server, which mounts the SPA at `/ui/`
+and serves the same data through live endpoints (`/trends`, `/options`,
+`/forecast/fingerprint`, `/health`):
 
 ```sh
 # from trndly/ (the inner package dir)
 .venv/bin/python -m uvicorn backend.services.scheduleServer:app --port 8000
 # → http://localhost:8000/ui/
+# (or: bash scripts/run_api.sh)
 ```
 
-Serving `frontend/` directly with `python3 -m http.server` works only if you
-also set `window.API_BASE = 'http://localhost:8000'` to point the fetch
-calls at the FastAPI service, and the API accepts cross-origin requests.
-Easier to just use the `/ui/` mount.
+To point a statically-served frontend at a running API instead of the
+JSON files, set `window.API_BASE = 'http://localhost:8000'`.
 
-If the API isn't running, every screen that depends on it (Highlights,
-Trends) shows an explicit error card with a backend-agnostic message. The
-sidebar carries a live API-status pill (green / amber / red dot) so you
-never have to guess whether the service is up.
+If the data fetch fails (no `data/*.json` published yet, or the API isn't
+running), every screen that depends on it (Highlights, Trends) shows an
+explicit error card with a backend-agnostic message. The sidebar carries
+a live status pill (green / amber / red dot) driven by the health data.
 
 ---
 
@@ -107,33 +117,36 @@ build.
 ## Data flow
 
 ```
-FastAPI (backend/services/scheduleServer.py)
-   │  GET /trends         predictions_univariate_*.parquet → TrendRow[]
-   │  GET /options        lookup.csv                       → categorized {name,id}[]
-   │  GET /forecast/fingerprint  predictions_fingerprint_*.parquet (5-D query)
-   │  GET /health         bundle status + anchor month
+frontend/data/*.json   (default: published by the tick, served same-origin)
+   trends.json         univariate predictions        → TrendRow[]
+   options.json        dropdown vocabularies         → categorized {name,id}[]
+   fingerprint.json    5-D-keyed bundle              → client-side lookup
+   health.json         bundle status + anchor month
+      — OR, when window.API_BASE is set —
+FastAPI dev server     /trends /options /forecast/fingerprint /health
    ▼
 api.js          apiFetcher + reshape adapters (no caching)
    ▼
 dataProvider.js useData() — useFetch-cached + session state for inventory
    ▼
 screens         render trends, signals, status; show loading/error/empty
-                states explicitly when /trends or /health fails
+                states explicitly when the trends or health fetch fails
 ```
 
-`/trends`, `/options`, and `/health` are fetched (and cached) by
-`dataProvider.js`'s `useFetch`; `/forecast/fingerprint` is fetched per-item
-by `ScreenItem.jsx` (also via `useFetch`, keyed on the resolved 5-D
-querystring).
+Trends, options, and health are fetched (and cached) by
+`dataProvider.js`'s `useFetch`; the fingerprint series is resolved
+per-item by `ScreenItem.jsx` (a key lookup into the fetched
+`fingerprint.json` bundle, or a `/forecast/fingerprint` query in API
+mode).
 
 Inventory and per-item signals are **session-scoped** — `useState([])` /
 `useState({})` reset on every page reload. To persist, swap the empty
 initial state for an API fetch and route `addItem` through a new POST
 endpoint (not built).
 
-The frontend never reads files. The cloud-SQL migration (target
-architecture) will swap parquet reads inside `scheduleServer.py` for SQL
-queries; the response shapes stay stable, so the frontend doesn't change.
+The static files and the dev API share one source of truth — both are
+produced/served through the shared `pipelines/serving/` module — and one
+response shape, so the frontend doesn't know or care which mode it's in.
 
 ---
 
@@ -191,10 +204,10 @@ The item-level recommendation pill is derived directly from a single
 10-point series — the same series the Overall Popularity chart shows.
 Source priority:
 
-1. `GET /forecast/fingerprint` — for any 5-D combination that's in the
-   precomputed cube. Gold standard.
+1. The precomputed fingerprint — a 5-D key lookup into `fingerprint.json`
+   (or `GET /forecast/fingerprint` in API mode). Gold standard.
 2. `synthesizeFingerprintSeries(tags, trends)` in `api.js` — when the
-   fingerprint endpoint returns 404. Computes a joint forecast by
+   fingerprint lookup misses. Computes a joint forecast by
    multiplying each populated tag dimension's relative motion across the
    forward window (multiplicative independence). The chart renders a
    user-friendly note: **"We've never seen this item before! Predicting
@@ -236,9 +249,8 @@ states (loading / error / empty / data):
 | Item detail     | `/forecast/fingerprint` (per-item) + session-local | — | (falls back to synthesized series on 404)  | "no item selected" / "no feature signals" |
 | Sidebar pill    | `/health` (15s poll) | grey "API · connecting"      | red "API · offline" (tooltip = error msg)  | amber "API · degraded" if bundle missing |
 
-Error copy is backend-agnostic — it surfaces whatever the API itself
-returned, so the same messages work for parquet-missing today and
-cloud-SQL-down later.
+Error copy is backend-agnostic — it surfaces whatever the fetch
+returned, so the same messages work in static mode and API mode alike.
 
 ---
 

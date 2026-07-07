@@ -1,7 +1,7 @@
 # TODO
 
 Forward-looking work list for the trndly forecaster pipeline.
-Last updated: 2026-06-23 (audited 2026-06-23).
+Last updated: 2026-07-07 (audited 2026-07-07).
 
 For the shipped state, read [README.md](README.md) and
 [trndly/docs/architecture.md](trndly/docs/architecture.md). For
@@ -17,36 +17,25 @@ recent landmark commits, run `git log --oneline -20`.
 
 ## Pinned (out of scope until reprioritized)
 
-### Cloud deployment (target architecture)
+### Cloud deployment (remaining target work)
 
-The shipped MVP is laptop-driven. The
-[architecture.md "Future" section](trndly/docs/architecture.md#future-target-architecture-not-yet-shipped)
-captures the target end state. Concretely:
+Serving is live and static (Firebase Hosting + CDN — `trndly.web.app`),
+MLflow runs private on Cloud Run + Cloud SQL + GCS, and all infra is
+Terraform (`trndly/infra/`): Phases 0–3 of the build plan
+(`trndly/docs/serving-redesign.md`) shipped 2026-06-24. The tick itself
+is still laptop-driven. What remains:
 
-- **Storage migration: local parquet → GCS.** `paths.py` is the single
-  chokepoint — today it is pure local `Path(__file__).resolve()` logic
-  with no `fsspec`/`gs://` resolver. Swap with an `fsspec`-backed
-  resolver. `gcsfs` already in `requirements.txt`. Buckets are provisioned
-  via Terraform per the build plan (`trndly/docs/serving-redesign.md`).
-- **Cadence: manual CLI → Cloud Scheduler + Vertex Custom Container.**
-  Replace `python -m pipelines.monthly run` with a Vertex job, fire
-  monthly via Cloud Scheduler.
-- **MLflow registry: local file → managed tracking.** `evaluate.py`
-  currently writes a local `champion.json` pointer (it explicitly calls
-  itself the "local-MVP version"); swap for
-  `MlflowClient.set_registered_model_alias`. The development MLflow server
-  has been **retired** and is being rebuilt private (Cloud Run + Cloud SQL
-  + GCS) per `trndly/docs/serving-redesign.md`; it was used only during
-  model development / HP sweeps (`notebooks/_gen_4_hyperparameter_search.py`),
-  never in the monthly tick or the serving request path.
-- **Frontend hosting: same-origin uvicorn → Firebase Hosting + Cloud
-  Run API.** Add CORS allowlist.
-- **Auth: none → Firebase Auth.** Per-user inventory in Firestore.
-- **Container split: 3 images (collectors / monthly tick / API).**
-  Currently single `trndly/Dockerfile`. (Note: that Dockerfile's
-  `COPY pipelines/training` line is dead — no `pipelines/training`
-  directory exists in the repo, so the copy silently no-ops. Drop or fix
-  it when the container is reworked.)
+- **MLflow registry wiring (Phase 4).** `evaluate.py` still uses the
+  local `champion.json` promote-copy; target is
+  `MlflowClient.set_registered_model_alias` against the live private
+  MLflow, with `train` logging model versions.
+- **Auth + persistent inventory (Phase 5).** Firebase Auth + Firestore;
+  `frontend/auth.js` is a demo stub, inventory is session state.
+- **Cloud-native tick (Phase 6 — PROPOSED, review first).** Scheduled,
+  idempotent tick on a Cloud Run Job; all data in GCS (`paths.py` is the
+  single chokepoint — pure local `Path` logic today, no `fsspec`/`gs://`
+  resolver; `gcsfs` already in `requirements.txt`). Requires accepting
+  ADR 0001 (`trndly/docs/decisions/0001-cloud-tick-cdn-refresh.md`).
 
 ### Univariate `dimension` feature
 
@@ -79,8 +68,9 @@ once enough live months accumulate to evaluate against held-out data.
 ### Frontend fingerprint synthesis quality
 
 `frontend/api.js::synthesizeFingerprintSeries` produces a joint forecast
-by multiplying per-dimension relative motions when `/forecast/fingerprint`
-404s. This is a multiplicative-independence approximation — fine for many
+by multiplying per-dimension relative motions when the fingerprint lookup
+misses (a `fingerprint.json` miss in static mode; a 404 on the dev API).
+This is a multiplicative-independence approximation — fine for many
 cases but doesn't capture cross-dimension correlations (some
 materials/types co-occur more than independence predicts).
 
@@ -104,43 +94,12 @@ should detect a 401 mid-run and re-invoke `_bootstrap_session` instead
 of failing the whole scrape. Today there is no 401 detection in the
 fetch loop, so the user has to re-run from scratch.
 
-### MLflow registry hygiene
+### Local venv Python version
 
-A retired registered model still lives in the cloud MLflow registry.
-Note the name is ambiguous from the repo: the HP-sweep notebook
-references the legacy name `listing_timeline`, while the serving
-leftover config (`backend/services/.env`) references
-`listing_timeline_experiments`. The development MLflow server has been
-retired (its registry is gone with it), so this cleanup is moot until the
-private replacement is stood up and re-seeded — see
-`trndly/docs/serving-redesign.md`.
-
-### Test infrastructure: missing `pytest-asyncio` (and venv Python version)
-
-`pytest tests/` currently reports **17 failed** (236 passed, 3
-deselected). All 17 failures are the async scraper tests
-(`test_ae.py`, `test_gap.py`, `test_uniqlo.py`, `test_hollister.py`,
-`test_http_utils.py`) erroring with *"async def functions are not
-natively supported"*.
-
-Two compounding causes:
-
-1. **`pytest-asyncio` is not installed** — and, contrary to a previous
-   note, it is **not** listed in `requirements.txt` (only `pytest` and
-   `pytest-httpx` are). So reinstalling the venv from `requirements.txt`
-   alone will **not** fix this. Either `pip install pytest-asyncio`
-   directly, or add it to `requirements.txt` first.
-2. **The on-disk `.venv` is Python 3.14**, not the supported 3.11
-   (`scripts/setup_venv.sh` and CI both pin 3.11). Under this combo
-   pytest 9 also warns `Unknown config option: asyncio_mode` and treats
-   `@pytest.mark.asyncio` as an unknown mark.
-
-**Fix:** rebuild the venv on Python 3.11 via `scripts/setup_venv.sh`,
-add `pytest-asyncio` to `requirements.txt`, and reinstall. Note that CI
-(`.github/workflows/tests.yml`) runs on Python 3.11 and currently does
-`pip install -r requirements.txt && pip install pytest` — it will hit
-the same async failures until `pytest-asyncio` is added to the install
-step or requirements.
+`pytest-asyncio` is in `requirements.txt` and CI (Python 3.11) is
+green. The on-disk `.venv` is Python 3.14, though — the supported
+version is 3.11 (`scripts/setup_venv.sh` and CI both pin it). Rebuild
+the venv via `scripts/setup_venv.sh` if local runs misbehave.
 
 ---
 
@@ -206,37 +165,23 @@ import will raise — fix the diff before the scrapers can run.**
 Negative test in
 [tests/test_trndly.py::test_lookup_consistency_validator_detects_drift](trndly/tests/test_trndly.py).
 
-### Sparse cube — anchor backfill stopgap in place
+### Sparse cube — synthetic anchor priors (persistent backfill cube)
 
-`pipelines/monthly/predict.py` requires 4 contiguous months in the cube
-to produce predictions for an anchor (t, t-1, t-2, t-3). The merged cube
-has 23 contiguous historical months (Oct 2018 → Aug 2020) plus the
-single live month (May 2026) — a 5-year gap between the two.
-
-**Stopgap (currently active — verified 2026-06-22):**
+`pipelines/monthly/predict.py` requires 4 contiguous months (anchor +
+3 lags), but the data has a ~5-year gap: historical (2018-10 → 2020-08)
+vs live (2026-05 →). Per
+[ADR 0002](trndly/docs/decisions/0002-persistent-backfill-cube.md),
 [scripts/backfill_anchor_lags.py](trndly/scripts/backfill_anchor_lags.py)
-manufactures synthetic Feb/Mar/Apr 2026 rows for the merged cube by
-taking historical seasonal ratios (hist[lag_month] / hist[anchor_month],
-averaged across 2019 + 2020) and rescaling by the current 2026-05
-share_t. This lets `pipelines.monthly.predict` anchor at 2026-05 and
-gives the UI real-recent live data plus synthetic-but-plausible context
-for past 3 months. (Confirmed live: `merged_univariate.parquet` holds
-357 rows with `source = 'backfill'` for 2026-02/03/04.)
+generated synthetic 2026-02/03/04 rows **once** into
+`data/processed/backfill_*.parquet` (seasonal ratios from 2019+2020,
+rescaled to the live anchor), and `aggregate` unions them into every
+tick's merged cube — no per-tick re-run, nothing to clobber. Synthetic
+rows stay traceable (`source='backfill'`; serving exposes
+`lags_synthetic: true` and the chart legend footnotes it).
 
-The backfill is **traceable**: synthetic rows carry `source = 'backfill'`
-in the merged cube and the `/health` endpoint exposes `lags_synthetic: true`
-when any of the anchor's lag months were backfilled. The chart legend on
-the Item Detail screen surfaces a footnote when that flag is set.
-
-**Remove the stopgap when:** real live scrapes have accumulated ≥4
-contiguous months (around 2026-08 if scrapes keep running monthly). At
-that point `pipelines.monthly aggregate` will produce a cube with real
-lag history, and predict will naturally pick the latest live anchor.
-Re-running aggregate also clobbers the backfill rows (intended).
-
-See [docs/monthly_tick.md](trndly/docs/monthly_tick.md) for cube
-semantics and [scripts/backfill_anchor_lags.py](trndly/scripts/backfill_anchor_lags.py)
-for the full method.
+**Remove when** live scrapes reach ≥4 contiguous months (~2026-08 at
+monthly cadence): delete `backfill_*.parquet` and the script; predict
+then anchors on real lag history.
 
 ---
 
@@ -250,9 +195,8 @@ for the full method.
   root will fail with `ModuleNotFoundError: pipelines`.
 - **Python interpreter.** `trndly/.venv/bin/python` is the supported
   env, built from `trndly/requirements.txt` via `scripts/setup_venv.sh`.
-  The supported version is **Python 3.11** (matches CI). Note: the venv
-  currently on disk is Python 3.14, which is why the async tests fail —
-  see "Test infrastructure" above.
+  The supported version is **Python 3.11** (matches CI); the venv
+  currently on disk is 3.14 — see "Local venv Python version" above.
 
 ### Smoke commands
 
@@ -275,8 +219,7 @@ cd /Users/jackcdawson/Desktop/trndly/trndly
 # Just the merge stage (rebuild merged_*.parquet from cubes on disk)
 .venv/bin/python -m pipelines.monthly aggregate
 
-# Test integrity (note: 17 async scraper tests fail until pytest-asyncio
-# is installed and the venv is on Python 3.11 — see Test infrastructure)
+# Test integrity (296 collected; 3 live network tests deselected)
 .venv/bin/python -m pytest tests/ -q
 
 # Serve the API
@@ -297,7 +240,7 @@ cd /Users/jackcdawson/Desktop/trndly/trndly
 | `/trends` returns `[]` | No predictions parquet, or anchor month has no rows | Run `python -m pipelines.monthly predict`; restart API |
 | API returns 503 with "predictions bundle not loaded" | No predictions parquet found at startup | `ls data/ticks/*/predictions_*.parquet`; run the monthly tick |
 | `predict` exits "no univariate predictions produced" | Latest cube month has no 3 contiguous prior months | See "Sparse cube → empty predictions" above |
-| `async def functions are not natively supported` (17 failures) | `pytest-asyncio` missing and/or venv on Python 3.14 | Install `pytest-asyncio`; rebuild venv on Python 3.11 |
+| `async def functions are not natively supported` | venv missing `pytest-asyncio` or on the wrong Python | Rebuild the venv on 3.11 via `scripts/setup_venv.sh` |
 
 ### Documentation
 
