@@ -1,0 +1,27 @@
+name: terraform
+
+# Creds-free static checks on the IaC: formatting + provider-schema validation.
+# `init -backend=false` downloads providers only — no state, no GCP credentials.
+# plan/apply stay manual (ADC on the operator's machine); see infra/README.md.
+
+on:
+  push:
+    branches: [main]
+    paths: ["trndly/infra/**", ".github/workflows/terraform.yml"]
+  pull_request:
+    branches: [main]
+    paths: ["trndly/infra/**", ".github/workflows/terraform.yml"]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dir: [trndly/infra, trndly/infra/bootstrap]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform -chdir=${{ matrix.dir }} fmt -check -recursive
+      - run: terraform -chdir=${{ matrix.dir }} init -backend=false
+      - run: terraform -chdir=${{ matrix.dir }} validate
