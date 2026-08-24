@@ -56,6 +56,12 @@ resource "google_iam_workload_identity_pool_provider" "github" {
   # Trust ONLY this repo's tokens. (Provider-version note: the
   # attribute_condition argument requires google provider >= 4.x; it is present
   # in the pinned ~> 6.0.)
+  #
+  # TODO(hardening): today ANY workflow on any branch of this repo can deploy.
+  # Pin the branch too — map "attribute.ref" = "assertion.ref" above and append
+  # `&& assertion.ref == 'refs/heads/main'` here — so a PR branch cannot ship
+  # to Hosting. Needs a `terraform apply`; deferred while project billing is
+  # detached.
   attribute_condition = "assertion.repository == '${local.github_repo}'"
 
   oidc {

@@ -214,7 +214,11 @@ resource "google_cloud_run_v2_service" "mlflow" {
         name = "PGPASSWORD"
         value_source {
           secret_key_ref {
-            secret  = google_secret_manager_secret.db_password.secret_id
+            secret = google_secret_manager_secret.db_password.secret_id
+            # TODO(reproducibility): pin the concrete version (e.g.
+            # google_secret_manager_secret_version.db_password.version) —
+            # "latest" means a rotation silently changes the next revision's
+            # config. Acceptable for a single operator; wrong with >1 deployer.
             version = "latest"
           }
         }

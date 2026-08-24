@@ -21,8 +21,11 @@ resource "google_firebase_web_app" "default" {
   project      = var.project_id
   display_name = "trndly"
 
-  # Don't delete the underlying Firebase app resource on `terraform destroy`
-  # (Firebase soft-deletes apps; recreation with the same id then conflicts).
+  # DELETE removes the web app on `terraform destroy`. The alternative,
+  # ABANDON, keeps it — but Firebase only soft-deletes apps, and a lingering
+  # soft-deleted app can conflict with recreating the same app later, so a
+  # destroyed stack should not leave one behind. (An earlier comment here
+  # described ABANDON while the value said DELETE; the value is the intent.)
   deletion_policy = "DELETE"
 
   depends_on = [google_firebase_project.default]

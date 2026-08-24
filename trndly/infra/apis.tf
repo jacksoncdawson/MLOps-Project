@@ -2,6 +2,14 @@
 # phases can `apply` without a separate enablement step. `disable_on_destroy =
 # false`: destroying one phase's resources must never tear down an API another
 # phase (or another project workload) still needs.
+#
+# Scope note: APIs once pre-enabled for unbuilt work were REMOVED from this set
+# — servicenetworking + vpcaccess (a private-IP Cloud SQL path, evaluated and
+# rejected for this project: single operator, IAM-gated Auth Proxy is the
+# fit-for-purpose control) and firestore + identitytoolkit (Phase 5, deferred).
+# Enable them in the phase that builds them. Removing an entry here only
+# destroys the TF resource; with disable_on_destroy = false the API itself
+# stays enabled in the project until disabled out-of-band.
 locals {
   gcp_apis = toset([
     # Enablement plumbing (required for google_project_service itself).
@@ -16,9 +24,6 @@ locals {
     "secretmanager.googleapis.com",
     "artifactregistry.googleapis.com",
     "cloudbuild.googleapis.com",
-    # Phase 3 upgrade path — private-IP Cloud SQL + VPC connector (plan §6).
-    "servicenetworking.googleapis.com",
-    "vpcaccess.googleapis.com",
     # Phase 2 — Firebase Hosting.
     "firebase.googleapis.com",
     "firebasehosting.googleapis.com",
@@ -26,9 +31,6 @@ locals {
     # short-lived SA credentials for the GitHub Actions deploy job).
     "sts.googleapis.com",
     "iamcredentials.googleapis.com",
-    # Phase 5 — dynamic tier (Firestore + Identity Platform / Firebase Auth).
-    "firestore.googleapis.com",
-    "identitytoolkit.googleapis.com",
   ])
 }
 
